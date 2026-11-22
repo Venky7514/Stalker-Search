@@ -14,24 +14,66 @@
   let spinnerStep = 0;
   const SPINNER_FRAMES = ["◐", "◓", "◑", "◒"];
 
+  const BRIDGE_URLS = {
+    bridge_ping: "http://127.0.0.1:60067/stalker_ping",
+    bridge_status: "http://127.0.0.1:60067/stalker_status",
+    bridge_feed: "http://127.0.0.1:60067/stalker_feed",
+  };
+
+  async function directBridgeFallback(msg) {
+    const url = BRIDGE_URLS[msg.action];
+    if (!url) return { ok: false, text: "" };
+    try {
+      const opts =
+        msg.action === "bridge_ping"
+          ? { method: "GET" }
+          : {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(msg.payload || {}),
+            };
+      const resp = await fetch(url, opts);
+      const text = await resp.text().catch(() => "");
+      return { ok: resp.ok, status: resp.status, text };
+    } catch (_) {
+      return { ok: false, status: 0, text: "" };
+    }
+  }
+
   function sendToBackground(msg) {
     return new Promise((resolve) => {
-      if (!api || !api.runtime || typeof api.runtime.sendMessage !== "function") {
-        resolve({ ok: false, text: "" });
+      // Firefox (`browser.*`) uses Promise-based sendMessage(msg) with 1 argument ONLY!
+      if (typeof browser !== "undefined" && browser.runtime && typeof browser.runtime.sendMessage === "function") {
+        browser.runtime
+          .sendMessage(msg)
+          .then((reply) => {
+            if (reply && typeof reply === "object") {
+              resolve(reply);
+            } else {
+              directBridgeFallback(msg).then(resolve);
+            }
+          })
+          .catch(() => {
+            directBridgeFallback(msg).then(resolve);
+          });
         return;
       }
-      try {
-        const res = api.runtime.sendMessage(msg, (reply) => {
-          resolve(reply || { ok: false, text: "" });
-        });
-        if (res && typeof res.then === "function") {
-          res
-            .then((reply) => resolve(reply || { ok: false, text: "" }))
-            .catch(() => resolve({ ok: false, text: "" }));
-        }
-      } catch (_) {
-        resolve({ ok: false, text: "" });
+
+      // Chromium (`chrome.*`) uses callback-based sendMessage(msg, callback)
+      if (typeof chrome !== "undefined" && chrome.runtime && typeof chrome.runtime.sendMessage === "function") {
+        try {
+          chrome.runtime.sendMessage(msg, (reply) => {
+            if (reply && typeof reply === "object") {
+              resolve(reply);
+            } else {
+              directBridgeFallback(msg).then(resolve);
+            }
+          });
+          return;
+        } catch (_) {}
       }
+
+      directBridgeFallback(msg).then(resolve);
     });
   }
 
@@ -361,6 +403,28 @@
       await new Promise((r) => setTimeout(r, 900));
       page1Hits = extractResultsFromDoc(currentDoc, seenUrls);
     }
+
+    // If Google forced AI Mode / non-Web layout and yielded 0 results on Page 1,
+    // explicitly fetch the classic Web tab (`&udm=14`) in the background using same-origin cookies!
+    if (page1Hits.length === 0) {
+      try {
+        const udmUrl = new URL(window.location.href);
+        if (udmUrl.searchParams.get("udm") !== "14") {
+          udmUrl.searchParams.set("udm", "14");
+          const resp = await fetch(udmUrl.toString(), { credentials: "same-origin" });
+          if (resp.ok) {
+            const html = await resp.text();
+            const parser = new DOMParser();
+            const webDoc = parser.parseFromString(html, "text/html");
+            if (!isCaptchaOrVerifyPage(webDoc)) {
+              currentDoc = webDoc;
+              page1Hits = extractResultsFromDoc(currentDoc, seenUrls);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
     allResults.push(...page1Hits);
 
     let nextUrl = findNextPageUrl(currentDoc, pageNum, page1Hits.length);

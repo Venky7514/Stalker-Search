@@ -27,14 +27,17 @@
   }
 
   function sendBridgeRequest(url, options, sendResponse) {
-    fetch(url, options)
+    const promise = fetch(url, options)
       .then(async (resp) => {
         const text = await resp.text().catch(() => "");
-        sendResponse({ ok: resp.ok, status: resp.status, text });
+        return { ok: resp.ok, status: resp.status, text };
       })
-      .catch(() => {
-        sendResponse({ ok: false, status: 0, text: "" });
-      });
+      .catch(() => ({ ok: false, status: 0, text: "" }));
+
+    if (typeof browser !== "undefined") {
+      return promise;
+    }
+    promise.then((res) => sendResponse(res));
     return true;
   }
 
