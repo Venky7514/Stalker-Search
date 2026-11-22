@@ -1,62 +1,56 @@
 # Stalker Search
 
-An open-source, local-first personal privacy & self-OSINT scanner written in Rust with a Firefox-based companion browser extension.
+An open-source, local-first personal privacy & self-OSINT scanner built in Rust with a Firefox-based companion browser extension.
 
-**Why Stalker Search exists:** Before a stalker, doxxer, or malicious actor can piece together your digital life using Open-Source Intelligence (OSINT), Stalker Search helps **you** see what is publicly exposed under your name, email, or phone number—so you don't get tracked or caught off guard and can take down exposed files, public calendars, profiles, and contact leaks early.
+**Why Stalker Search exists:** Before a stalker, doxxer, or malicious actor can piece together your digital life using Open-Source Intelligence (OSINT), Stalker Search helps **you** see what is publicly exposed under your name, email, or phone number—so you don't get caught off guard and can remove exposed documents, public calendars, profiles, and contact leaks early.
 
 > **Disclaimer:** This software is strictly intended for defensive privacy awareness and authorized use. **Use it only for personal self-audits, authorized criminal investigations, authorized penetration testing, or open-source security projects.** Do not use this tool for harassment, stalking, or unauthorized surveillance.
 
 ---
 
-## Credits & Inspiration
+## Supported Browsers
 
-- Inspired in part by **[mxrch/GHunt](https://github.com/mxrch/GHunt)** for local browser companion architecture and public Google endpoint/email pivoting techniques.
+Works with **Firefox-based browsers**:
+- **Mozilla Firefox**, **LibreWolf**, **Zen Browser**, **Floorp**, **Waterfox**, **Mullvad Browser**
 
----
-
-## Supported Browsers (Companion Extension)
-
-Stalker Search Companion uses Firefox WebExtension APIs (Manifest V2) and supports **Firefox-based browsers**:
-- **Mozilla Firefox**
-- **LibreWolf**
-- **Zen Browser**
-- **Floorp**
-- **Waterfox**
-- **Mullvad Browser**
-
-*(Chromium browsers such as Chrome are not supported because Manifest V2 extensions are deprecated there.)*
+*(Chromium browsers such as Chrome are not supported.)*
 
 ---
 
-## Option 1: Pre-Built Binary (Easiest — No Rust or Build Tools Needed)
+## Option 1: Quick Start (Recommended — No Coding or Build Tools Needed)
 
-If you download a pre-built release (`stalker-search.exe`) from **GitHub Releases**:
-1. Extract and run `stalker-search.exe` (zero Rust, zero MSVC Build Tools, zero dependencies needed).
-2. Complete **Step 2** below to load the companion add-on in your Firefox-based browser.
+### 1. Download the Release Files
+Go to **[GitHub Releases](https://github.com/Venky7514/Stalker-Search/releases)** and download:
+1. **`stalker-search.exe`** *(Windows 10/11 64-bit)*
+2. **`stalker-search-companion.zip`** *(unzip this into a folder)*
+
+### 2. Add the Companion Extension to Your Browser
+In **Firefox / LibreWolf / Zen / Floorp / Waterfox**:
+1. Open a new tab and go to:
+   ```text
+   about:debugging#/runtime/this-firefox
+   ```
+2. Click **"Load Temporary Add-on..."**.
+3. Open the unzipped companion folder and select **`manifest.json`**.
+4. *(If you want to use **Incognito Search (Private)**)*:
+   - Open **`about:addons`** → click **Stalker Search Companion** → set **Run in Private Windows** to **Allow**.
+
+*(Note: Temporary add-ons stay loaded until you close the browser; repeat Step 2 if you restart the browser, or install directly from Mozilla Add-ons once published.)*
+
+### 3. Run Your First Scan
+1. Double-click **`stalker-search.exe`** — the dashboard will open automatically in your browser.
+2. Enter at least **one** of **Name**, **Email**, or **Phone Number** *(add comma-separated **Context** like college, city, or company to narrow common names)*.
+3. Pick a search mode and click **Search Footprint**:
+   - **Open Google Search (Faster)**: Opens Google tabs in your active browser to avoid CAPTCHAs, scans all result pages, and automatically deletes temporary scan URLs from local browser history.
+   - **Incognito Search (Private)**: Opens Google tabs in a Private window with zero saved history *(complete any "Verify you are human" check directly inside the Incognito tab if prompted)*.
+   - **Background APIs Only**: Silently scans 18 public datasets (GitHub, Reddit, News RSS, arXiv, OpenAlex, ORCID, Google Calendar `.ics`, Gravatar, OpenPGP, etc.) without opening Google tabs.
+4. **Keep the opened Google tabs open** while the on-page banner shows **`DO NOT CLOSE TAB`**. Once it turns green (**`SAFE TO CLOSE TAB`**), your dashboard displays all findings and opt-out/removal links.
 
 ---
 
-## Option 2: Build & Run From Source
+## Option 2: Build From Source (Developers)
 
-### Prerequisites
-- **Rust & Cargo** (`1.75+`): Install via [rustup.rs](https://rustup.rs/).
-- **System C Linker** *(required by Rust on your OS to link the final executable)*:
-  - **Windows** *(choose either option)*:
-    - **Lightweight Alternative (No ~6 GB Visual Studio / MSVC needed)**: Install MinGW-w64 (`winget install BrechtSanders.WinLibs.POSIX.UCRT` or MSYS2) and run:
-      ```powershell
-      rustup toolchain install stable-x86_64-pc-windows-gnu
-      rustup default stable-x86_64-pc-windows-gnu
-      ```
-    - **OR Standard MSVC**: Visual Studio C++ Build Tools (*Desktop development with C++*).
-  - **macOS**: Xcode Command Line Tools (`xcode-select --install`).
-  - **Linux (Debian/Ubuntu)**: `build-essential pkg-config libssl-dev`.
-- **Browser Extension Build Tools**: **None required!** Everything in [`companion_extension/`](./companion_extension) is plain JavaScript, HTML, and SVG (no Node.js, npm, or bundler).
-
----
-
-## Step-by-Step Setup & Usage
-
-### Step 1: Clone & Start the Application
+- **Prerequisites**: [Rust (`1.75+`)](https://rustup.rs/) + a Windows C linker (**MinGW-w64** `stable-x86_64-pc-windows-gnu` *or* Visual Studio C++ Build Tools; `xcode-select --install` on macOS; `build-essential pkg-config libssl-dev` on Linux). The extension needs zero build tools.
 
 ```bash
 git clone https://github.com/Venky7514/Stalker-Search.git
@@ -64,75 +58,19 @@ cd Stalker-Search
 cargo run --release
 ```
 
-*(For future launches, you can run `.\target\release\stalker-search.exe` directly without recompiling!)*
+Then follow **Step 2** above using `companion_extension/manifest.json`.
 
-- On startup, Stalker Search starts a private local web server (`http://127.0.0.1:7878`) and opens the dashboard in your active browser.
-- *(Optional)* Launch without auto-opening a tab via `cargo run --release -- ui --no-open`.
-
----
-
-### Step 2: Load the Temporary Browser Companion Extension (`about:debugging`)
-
-Until you install the signed version from **Mozilla Add-ons**, load the extension manually in under 15 seconds in **Firefox / LibreWolf / Zen / Floorp / Waterfox**:
-
-1. Open a new tab and go to:
-   ```text
-   about:debugging#/runtime/this-firefox
-   ```
-2. Click **"Load Temporary Add-on..."**.
-3. Browse to the cloned `Stalker-Search/companion_extension/` folder and select **`manifest.json`**.
-4. *(If you plan to use **Incognito Search (Private)**)*:
-   - Open **`about:addons`** → click **Stalker Search Companion** → set **Run in Private Windows** to **Allow**.
-
-*(Note: Temporary add-ons loaded via `about:debugging` stay active until you close and restart the browser.)*
-
----
-
-### Step 3: Run a Privacy Scan
-
-1. **Enter Target Identity** (at least **one** of Name, Email, or Phone Number is required):
-   - **Name**: Checks both `"First Last"` and `"Last First"`, plus compound name variations.
-   - **Email**: Checks web leaks, GitHub commits, Gravatar, OpenPGP keys, and Public Google Calendar `.ics` feeds.
-   - **Phone Number**: Checks normalized phone digit formats across directories and documents.
-   - **Context** *(optional)*: Comma-separated keywords (e.g., college, city, company) to narrow common names. Enable **Strict Context Match Only** to hide results belonging to other people with the same name.
-2. **Choose Search Mode**:
-   - **Open Google Search (Faster)**: Opens targeted Google Search tabs in your active browser window to avoid CAPTCHAs, crawls up to 10 result pages (`Page 1 -> Page 2 -> ...`), syncs everything back to the dashboard, and deletes the temporary scan query URLs from local browser history.
-   - **Incognito Search (Private)**: Opens searches in a Private / Incognito browser window so zero history is stored. If Google prompts for human verification in an Incognito tab, complete it directly inside that tab without closing it.
-   - **Background APIs Only**: Silently sweeps 18 public datasets (GitHub, GitLab, StackOverflow, NPM, Crates.io, Docker Hub, Hacker News, Reddit, Google News RSS, arXiv, OpenAlex, ORCID, Semantic Scholar, Crossref, Internet Archive, Wikipedia/Wikidata, Keybase, OpenPGP) without opening browser tabs.
-3. **Wait for the On-Page Overlay**:
-   - **Do NOT close** the opened Google Search browser tabs while the floating banner says **`DO NOT CLOSE TAB`**.
-   - Once it switches to **`SAFE TO CLOSE TAB`**, your dashboard updates automatically with risk-scored findings, discovered emails/phones, and direct remediation/opt-out links.
-4. **Export or Wipe**:
-   - Click **Export Markdown** or **Export JSON** to save a report locally, or **Clear Cache** in the header to wipe temporary state.
-
----
-
-## Command-Line Interface (CLI) Usage
-
+### CLI Usage
 ```bash
-# Launch the Web Dashboard (default)
-cargo run
-
-# Preview generated dork queries without running a scan
 cargo run -- dorks --name "Jane Doe" --context "MIT, Boston"
-
-# Scan via CLI + Multi-Page Browser Companion Sync
 cargo run -- scan --name "Jane Doe" --context "MIT, Boston" --open-google --listen
-
-# Scan in Private / Incognito Browser Window
-cargo run -- scan --name "Jane Doe" --incognito --listen
-
-# Scan by Email or Phone Number only
 cargo run -- scan --email "jane@example.com" --phone "+1 555-019-2834"
-
-# Wipe any local cache files from disk
 cargo run -- clean
 ```
 
 ---
 
-## Privacy & Security Architecture
+## Privacy & Credits
 
-- **100% Local Loopback**: Both the Web UI and Companion Bridge bind exclusively to loopback (`127.0.0.1`).
-- **Zero Cookies or Telemetry**: The browser extension only reads visible public search result cards (`div[data-snc]`, `div.MjjYud`, `div.g`). It never accesses `document.cookie`, credentials, geolocation, or external analytics.
-- **Zero Disk Search History**: Search queries and findings stay strictly in memory during scans and are never written to disk unless you explicitly click Export.
+- **100% Local**: Zero cookies, credentials, geolocation, telemetry, or saved search history on disk.
+- **Inspiration**: Inspired in part by **[mxrch/GHunt](https://github.com/mxrch/GHunt)** for local browser companion architecture and public email/calendar pivoting techniques.
