@@ -341,7 +341,7 @@ async fn main() -> Result<()> {
                     .map(|dork| {
                         let encoded: String =
                             url::form_urlencoded::byte_serialize(dork.query.as_bytes()).collect();
-                        format!("https://www.google.com/search?q={}", encoded)
+                        format!("https://www.google.com/search?q={}&udm=14", encoded)
                     })
                     .collect();
 

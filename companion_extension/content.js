@@ -278,11 +278,11 @@
       pageResults.push({ title, url, snippet });
     }
 
-    // Pass 2: Fallback for alternative/minimal Google SERP layouts without <h3>
+    // Pass 2: Fallback across full document (handles AI Mode citation sidebars & alternative SERP layouts)
     if (pageResults.length === 0) {
-      const anchors = root.querySelectorAll("a[href]");
+      const anchors = doc.querySelectorAll("a[href]");
       for (const anchor of anchors) {
-        if (anchor.closest("header, footer, nav, #fbar, #swml, #gb, [role='navigation']")) {
+        if (anchor.closest("header, footer, nav, #fbar, #swml, #gb, [role='navigation'], aside#stalker-companion-banner")) {
           continue;
         }
         const rawHref = anchor.getAttribute("href") || anchor.href || "";
@@ -337,6 +337,7 @@
     if (lastPageHitCount >= 6) {
       try {
         const nextU = new URL(window.location.href);
+        nextU.searchParams.set("udm", "14");
         nextU.searchParams.set("start", expectedStart);
         return nextU.toString();
       } catch (_) {}
