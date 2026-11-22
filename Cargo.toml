@@ -2,7 +2,7 @@
 name = "stalker-search"
 version = "0.1.0"
 edition = "2021"
-description = "Open-source self-OSINT & digital footprint scanner using BYOK search engine APIs to protect personal privacy"
+description = "Open-source, local-first digital footprint & personal OSINT privacy scanner"
 license = "MIT"
 
 [dependencies]

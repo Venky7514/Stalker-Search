@@ -2,20 +2,14 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Supported search engine providers (defaults to `Free` zero-key privacy mode).
+/// Supported search engine backends (defaults to `Free` zero-key privacy mode).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum EngineKind {
-    /// Zero-Key Privacy Mode: DuckDuckGo HTML + Yahoo fallback + GitHub/Reddit/HN/Direct Profile OSINT (No API key needed)
+    /// Zero-Key Privacy Mode: 18 Keyless APIs + SearXNG (if configured) + DuckDuckGo + Brave HTML
     #[default]
     Free,
-    /// Official Google Custom Search JSON API (requires API Key + CX ID)
-    Google,
-    /// Serper.dev Google Search API (requires API Key only)
-    Serper,
-    /// Brave Web Search API (requires API Key)
-    Brave,
-    /// Self-hosted or public SearXNG instance (requires Base URL with JSON format enabled)
+    /// Self-hosted or custom SearXNG instance
     Searxng,
 }
 
@@ -24,11 +18,8 @@ impl fmt::Display for EngineKind {
         match self {
             EngineKind::Free => write!(
                 f,
-                "Zero-Key Free Mode (DuckDuckGo + GitHub + Reddit + HN + Profile Probe)"
+                "Zero-Key Free Mode (18 Public APIs + DuckDuckGo + Brave + SearXNG)"
             ),
-            EngineKind::Google => write!(f, "Google Custom Search"),
-            EngineKind::Serper => write!(f, "Serper.dev (Google)"),
-            EngineKind::Brave => write!(f, "Brave Search"),
             EngineKind::Searxng => write!(f, "SearXNG"),
         }
     }

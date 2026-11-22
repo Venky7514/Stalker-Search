@@ -254,7 +254,7 @@ async fn execute_ui_scan(req: UiScanRequest) -> Result<UiScanResponse> {
     };
 
     let cfg = AppConfig::load().unwrap_or_default();
-    let search_engine = build_engine(cfg.default_engine, &cfg, None, None, None)?;
+    let search_engine = build_engine(cfg.default_engine, &cfg, None)?;
     let dorks = generate_dorks(&target);
     let effective_max = req.pages.clamp(1, 10) * 10;
 

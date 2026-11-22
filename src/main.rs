@@ -10,7 +10,7 @@ mod ui;
 
 use crate::analyzer::analyze_results;
 use crate::cache::QueryCache;
-use crate::config::{mask_secret, AppConfig};
+use crate::config::AppConfig;
 use crate::dorks::{generate_dorks, ScanTarget};
 use crate::engines::build_engine;
 use crate::engines::free::{
@@ -33,7 +33,7 @@ use std::time::Duration;
 #[command(
     name = "stalker-search",
     version,
-    about = "Open-source self-OSINT & digital footprint privacy scanner (Web UI + CLI)"
+    about = "Open-source, local-first digital footprint & self-OSINT privacy scanner (Web UI + CLI)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -56,8 +56,8 @@ enum Commands {
     /// Wipe all local cached searches and temporary data from disk
     Clean,
 
-    /// Guided browser login wizard to connect Google Search (Serper / Custom Search) or SearXNG
-    Login,
+    /// Guided setup to connect a local or self-hosted SearXNG instance
+    SearxngSetup,
 
     /// Configure search engine settings manually
     Config {
@@ -126,17 +126,9 @@ enum Commands {
         #[arg(short, long)]
         phone: Vec<String>,
 
-        /// Search engine backend to use (`free` by default; or `google`, `serper`, `brave`, `searxng`)
+        /// Search engine backend to use (`free` by default, or `searxng`)
         #[arg(long, value_enum)]
         engine: Option<EngineKind>,
-
-        /// Optional API key override (only used if engine is google/serper/brave)
-        #[arg(long)]
-        api_key: Option<String>,
-
-        /// Optional Google Programmable Search Engine CX ID override
-        #[arg(long)]
-        cx: Option<String>,
 
         /// Optional SearXNG instance URL (also automatically used in `free` mode!)
         #[arg(long)]
@@ -190,19 +182,11 @@ enum Commands {
 
 #[derive(Subcommand, Debug)]
 enum ConfigAction {
-    /// Save search engine preference or optional API credentials
+    /// Save search engine preference (`free` or `searxng`)
     Set {
-        /// Which search engine provider to use by default (`free`, `google`, `serper`, `brave`, `searxng`)
+        /// Which search engine backend to use by default (`free` or `searxng`)
         #[arg(long, value_enum)]
         engine: EngineKind,
-
-        /// API Key (optional, not needed for `--engine free`)
-        #[arg(long)]
-        api_key: Option<String>,
-
-        /// Google Programmable Search Engine ID (cx)
-        #[arg(long)]
-        cx: Option<String>,
 
         /// SearXNG base URL
         #[arg(long)]
@@ -240,7 +224,7 @@ async fn main() -> Result<()> {
                 );
             }
         }
-        Commands::Login => handle_interactive_login()?,
+        Commands::SearxngSetup => handle_searxng_setup()?,
         Commands::Config { action } => handle_config(action)?,
         Commands::Dorks {
             name,
@@ -302,8 +286,6 @@ async fn main() -> Result<()> {
             email,
             phone,
             engine,
-            api_key,
-            cx,
             url,
             open_google,
             incognito,
@@ -331,7 +313,7 @@ async fn main() -> Result<()> {
 
             let cfg = AppConfig::load().unwrap_or_default();
             let selected_kind = engine.unwrap_or(cfg.default_engine);
-            let search_engine = build_engine(selected_kind, &cfg, api_key, cx, url)?;
+            let search_engine = build_engine(selected_kind, &cfg, url)?;
 
             let target = ScanTarget {
                 full_name,
@@ -543,9 +525,8 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Interactive browser-assisted login wizard so users can sign in with their Google account
-/// in 1 click or connect a SearXNG instance.
-fn handle_interactive_login() -> Result<()> {
+/// Interactive wizard to connect a local or custom SearXNG instance or keep Zero-Key Free Mode.
+fn handle_searxng_setup() -> Result<()> {
     println!();
     println!(
         "{}",
@@ -553,134 +534,36 @@ fn handle_interactive_login() -> Result<()> {
     );
     println!(
         "{}",
-        style("STALKER-SEARCH: GOOGLE LOGIN & SEARXNG SETUP WIZARD")
-            .bold()
-            .cyan()
+        style("STALKER-SEARCH: SEARXNG SETUP WIZARD").bold().cyan()
     );
     println!(
         "{}",
         style("==========================================================================").dim()
     );
-    println!("Choose how you want to add full Google Search or SearXNG results:\n");
-    println!(
-        "  {} {} (Recommended — 1-Click 'Sign in with Google' in your browser, 2,500 free Google searches, no credit card)",
-        style("[1]").green().bold(),
-        style("Google Login via Serper.dev").white().bold()
-    );
-    println!(
-        "  {} {} (Official Google Custom Search API Key + CX — 100 free Google searches/day)",
-        style("[2]").cyan().bold(),
-        style("Official Google Account Custom Search").white().bold()
-    );
-    println!(
-        "  {} {} (Connect a local Docker or custom SearXNG instance URL)",
-        style("[3]").yellow().bold(),
-        style("SearXNG Metasearch Instance").white().bold()
-    );
-    println!(
-        "  {} {} (Use 18 Keyless APIs + Google News RSS + DuckDuckGo + Brave with zero keys)\n",
-        style("[4]").magenta().bold(),
-        style("Keep Zero-Key Free Mode").white().bold()
-    );
-
-    print!("Select an option [1-4]: ");
+    println!("\nTip: You can run SearXNG locally with Docker via:\n  docker run -d -p 8080:8080 searxng/searxng\n");
+    print!("Enter your SearXNG base URL (leave blank to use Zero-Key Free Mode): ");
     let _ = io::stdout().flush();
-    let mut choice = String::new();
-    io::stdin().read_line(&mut choice)?;
+    let mut url = String::new();
+    io::stdin().read_line(&mut url)?;
+    let trimmed = url.trim().to_string();
 
     let mut cfg = AppConfig::load().unwrap_or_default();
-
-    match choice.trim() {
-        "1" => {
-            println!(
-                "\n{} Opening {} in your browser...",
-                style("[*]").cyan().bold(),
-                style("https://serper.dev/signup").underlined()
-            );
-            println!("    1. Click 'Continue with Google' in the browser window that opens.");
-            println!("    2. Copy your API key from the dashboard and paste it below.\n");
-            open_url_in_browser("https://serper.dev/signup");
-
-            print!("Paste your Serper Google API Key: ");
-            let _ = io::stdout().flush();
-            let mut key = String::new();
-            io::stdin().read_line(&mut key)?;
-            let trimmed = key.trim().to_string();
-            if !trimmed.is_empty() {
-                cfg.serper.api_key = Some(trimmed);
-                cfg.default_engine = EngineKind::Serper;
-                let path = cfg.save()?;
-                println!(
-                    "\n{} Connected Google Search (via Serper.dev) and saved to {}!",
-                    style("[+]").green().bold(),
-                    path.display()
-                );
-            }
-        }
-        "2" => {
-            println!(
-                "\n{} Opening Google Custom Search API Key page in your browser...",
-                style("[*]").cyan().bold()
-            );
-            open_url_in_browser("https://developers.google.com/custom-search/v1/introduction");
-
-            print!("1. Click 'Get a Key' in your browser and paste the Google API Key (AIza...): ");
-            let _ = io::stdout().flush();
-            let mut key = String::new();
-            io::stdin().read_line(&mut key)?;
-
-            println!(
-                "\n{} Opening Google Programmable Search Control Panel in your browser...",
-                style("[*]").cyan().bold()
-            );
-            open_url_in_browser("https://programmablesearchengine.google.com/controlpanel/all");
-
-            print!("2. Paste your Search Engine ID (cx): ");
-            let _ = io::stdout().flush();
-            let mut cx = String::new();
-            io::stdin().read_line(&mut cx)?;
-
-            if !key.trim().is_empty() && !cx.trim().is_empty() {
-                cfg.google.api_key = Some(key.trim().to_string());
-                cfg.google.cx = Some(cx.trim().to_string());
-                cfg.default_engine = EngineKind::Google;
-                let path = cfg.save()?;
-                println!(
-                    "\n{} Connected Official Google Custom Search and saved to {}!",
-                    style("[+]").green().bold(),
-                    path.display()
-                );
-            }
-        }
-        "3" => {
-            println!(
-                "\nTip: You can run SearXNG locally with Docker via:\n  docker run -d -p 8080:8080 searxng/searxng\n"
-            );
-            print!("Enter your SearXNG base URL (e.g. http://localhost:8080): ");
-            let _ = io::stdout().flush();
-            let mut url = String::new();
-            io::stdin().read_line(&mut url)?;
-            let trimmed = url.trim().to_string();
-            if !trimmed.is_empty() {
-                cfg.searxng.base_url = Some(trimmed);
-                // Keep Free mode as default since Free mode now automatically queries your SearXNG URL too!
-                let path = cfg.save()?;
-                println!(
-                    "\n{} Saved SearXNG URL to {}! Both `--engine free` and `--engine searxng` will now query it.",
-                    style("[+]").green().bold(),
-                    path.display()
-                );
-            }
-        }
-        _ => {
-            cfg.default_engine = EngineKind::Free;
-            let path = cfg.save()?;
-            println!(
-                "\n{} Set default engine to Zero-Key Free Mode ({}).",
-                style("[+]").green().bold(),
-                path.display()
-            );
-        }
+    if !trimmed.is_empty() {
+        cfg.searxng.base_url = Some(trimmed);
+        let path = cfg.save()?;
+        println!(
+            "\n{} Saved SearXNG URL to {}! Both `--engine free` and `--engine searxng` will now query it.",
+            style("[+]").green().bold(),
+            path.display()
+        );
+    } else {
+        cfg.default_engine = EngineKind::Free;
+        let path = cfg.save()?;
+        println!(
+            "\n{} Using Zero-Key Free Mode ({}).",
+            style("[+]").green().bold(),
+            path.display()
+        );
     }
 
     Ok(())
@@ -879,10 +762,6 @@ fn detect_active_or_installed_browser() -> Option<(&'static str, String, &'stati
     None
 }
 
-fn open_url_in_browser(url: &str) {
-    open_urls_in_active_browser(&[url.to_string()], false);
-}
-
 /// Opens URLs in whichever browser the user currently has open (either in its Private/Incognito window or normal window).
 pub fn open_urls_in_active_browser(urls: &[String], private_mode: bool) {
     if urls.is_empty() {
@@ -944,44 +823,11 @@ pub fn open_urls_in_active_browser(urls: &[String], private_mode: bool) {
 
 fn handle_config(action: ConfigAction) -> Result<()> {
     match action {
-        ConfigAction::Set {
-            engine,
-            api_key,
-            cx,
-            url,
-        } => {
+        ConfigAction::Set { engine, url } => {
             let mut cfg = AppConfig::load().unwrap_or_default();
             cfg.default_engine = engine;
-
-            match engine {
-                EngineKind::Free => {
-                    if let Some(u) = url {
-                        cfg.searxng.base_url = Some(u);
-                    }
-                }
-                EngineKind::Google => {
-                    if let Some(k) = api_key {
-                        cfg.google.api_key = Some(k);
-                    }
-                    if let Some(c) = cx {
-                        cfg.google.cx = Some(c);
-                    }
-                }
-                EngineKind::Serper => {
-                    if let Some(k) = api_key {
-                        cfg.serper.api_key = Some(k);
-                    }
-                }
-                EngineKind::Brave => {
-                    if let Some(k) = api_key {
-                        cfg.brave.api_key = Some(k);
-                    }
-                }
-                EngineKind::Searxng => {
-                    if let Some(u) = url {
-                        cfg.searxng.base_url = Some(u);
-                    }
-                }
+            if let Some(u) = url {
+                cfg.searxng.base_url = Some(u);
             }
 
             let saved_path = cfg.save()?;
@@ -1004,16 +850,8 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 "  Default Engine : {}",
                 style(cfg.default_engine).yellow().bold()
             );
-            println!("  [Google]");
-            println!("    api_key      : {}", mask_secret(&cfg.google.api_key));
-            println!("    cx           : {}", mask_secret(&cfg.google.cx));
-            println!("  [Serper.dev]");
-            println!("    api_key      : {}", mask_secret(&cfg.serper.api_key));
-            println!("  [Brave Search]");
-            println!("    api_key      : {}", mask_secret(&cfg.brave.api_key));
-            println!("  [SearXNG]");
             println!(
-                "    base_url     : {}\n",
+                "  SearXNG URL    : {}\n",
                 cfg.searxng.base_url.as_deref().unwrap_or("<not set>")
             );
         }
