@@ -37,19 +37,13 @@ cargo run -- ui
 
 ---
 
-## Browser Companion Extension & Mozilla Add-ons (AMO) Publishing
+## Browser Companion Extension
 
-The extension in [`companion_extension/`](./companion_extension) crawls all pages of a Google Search tab and syncs the extracted results to `http://127.0.0.1:60067/stalker_feed` (zero cookies or credentials are ever read or transmitted).
+The browser extension in [`companion_extension/`](./companion_extension) crawls all pages of a Google Search tab and syncs the extracted results to `http://127.0.0.1:60067/stalker_feed` (zero cookies, credentials, or external telemetry are ever accessed or transmitted).
 
-### Publishing or Signing on Mozilla Add-ons (`addons.mozilla.org`)
-A pre-packaged, Mozilla AMO-compliant archive is located at:
-- `companion_extension/stalker-search-companion-mozilla.zip`
-
-1. Go to the [Mozilla Add-on Developer Hub](https://addons.mozilla.org/en-US/developers/addon/submit/distribution).
-2. Choose your distribution mode:
-   - **"On your own" (Self-Distribution — Fastest, Automated Signing in ~2 minutes)**: Mozilla automatically signs the `.zip` into an official `.xpi` file that you can install permanently in Firefox or LibreWolf without `about:debugging`, while keeping it private to you.
-   - **"On this site" (Public Mozilla Add-ons Store)**: Publishes the extension publicly on `addons.mozilla.org` for anyone to install.
-3. Upload `companion_extension/stalker-search-companion-mozilla.zip`.
+### Installing Locally
+- **Firefox / LibreWolf**: Open `about:debugging#/runtime/this-firefox` -> **Load Temporary Add-on** -> select [`companion_extension/manifest.json`](./companion_extension/manifest.json) (or install the signed extension from Mozilla Add-ons).
+- **Chrome / Brave / Edge**: Open `chrome://extensions`, enable **Developer Mode**, and click **Load unpacked** -> select [`companion_extension/`](./companion_extension).
 
 ---
 
