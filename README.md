@@ -6,6 +6,8 @@ An open-source, local-first personal privacy & self-OSINT scanner built in Rust 
 
 > **Disclaimer:** This software is strictly intended for defensive privacy awareness and authorized use. **Use it only for personal self-audits, authorized criminal investigations, authorized penetration testing, or open-source security projects.** Do not use this tool for harassment, stalking, or unauthorized surveillance.
 
+![Stalker Search Interface](docs/preview.jpg)
+
 ---
 
 ## Supported Browsers
