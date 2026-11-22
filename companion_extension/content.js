@@ -25,7 +25,9 @@
           resolve(reply || { ok: false, text: "" });
         });
         if (res && typeof res.then === "function") {
-          res.then((reply) => resolve(reply || { ok: false, text: "" })).catch(() => resolve({ ok: false, text: "" }));
+          res
+            .then((reply) => resolve(reply || { ok: false, text: "" }))
+            .catch(() => resolve({ ok: false, text: "" }));
         }
       } catch (_) {
         resolve({ ok: false, text: "" });
@@ -36,7 +38,8 @@
   function preventEarlyClose(e) {
     if (!isScanning) return undefined;
     e.preventDefault();
-    e.returnValue = "Stalker Search is still scanning Google pages. Keep this tab open until complete.";
+    e.returnValue =
+      "Stalker Search is still scanning Google pages. Keep this tab open until complete.";
     return e.returnValue;
   }
 
@@ -99,7 +102,8 @@
 
       const spinEl = document.createElement("span");
       spinEl.id = "stalker-hud-spinner";
-      spinEl.style.cssText = "font-size:16px;font-weight:700;color:#ffffff;width:18px;display:inline-block;";
+      spinEl.style.cssText =
+        "font-size:16px;font-weight:700;color:#ffffff;width:18px;display:inline-block;";
       spinEl.textContent = "●";
 
       const titleEl = document.createElement("span");
@@ -186,48 +190,119 @@
     return hud;
   }
 
+  function unwrapGoogleUrl(rawHref) {
+    if (!rawHref) return "";
+    let url = rawHref.trim();
+    if (!url || url.startsWith("#") || url.startsWith("javascript:")) return "";
+    try {
+      const parsed = new URL(url, window.location.origin);
+      if (
+        parsed.hostname.toLowerCase().includes("google.") &&
+        (parsed.pathname === "/url" || parsed.pathname === "/interstitial")
+      ) {
+        const target =
+          parsed.searchParams.get("q") ||
+          parsed.searchParams.get("url") ||
+          parsed.searchParams.get("u");
+        if (target && target.startsWith("http")) {
+          return target;
+        }
+      }
+      return parsed.toString();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function isInternalGoogleUrl(url) {
+    try {
+      const u = new URL(url);
+      const host = u.hostname.toLowerCase();
+      return (
+        host === "google.com" ||
+        host.endsWith(".google.com") ||
+        host.includes(".google.") ||
+        host.endsWith("gstatic.com") ||
+        host.endsWith("googleusercontent.com") ||
+        host.endsWith("googleapis.com") ||
+        host.endsWith("youtube.com/redirect")
+      );
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function extractSnippetForElement(el, title) {
+    const card =
+      el.closest("div[data-snc]") ||
+      el.closest("div.MjjYud") ||
+      el.closest("div.g") ||
+      el.closest("div.N54PNb") ||
+      el.closest("div.tF2Cxc");
+    if (!card) return "";
+    return (card.innerText || card.textContent || "")
+      .replace(title, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 450);
+  }
+
   function extractResultsFromDoc(doc, seenUrls) {
     const pageResults = [];
-    const headings = doc.querySelectorAll("a h3, a [role='heading']");
+    const root = doc.querySelector("#rso, #search, #main") || doc;
 
-    for (const h3 of headings) {
-      const anchor = h3.closest("a");
+    // Pass 1: Match headings across all Google SERP DOM layouts
+    // (<a><h3>...</h3></a>, <h3><a>...</a></h3>, or sibling <a> + <h3>)
+    const headings = root.querySelectorAll("h3, [role='heading']");
+    for (const heading of headings) {
+      if (heading.closest("header, footer, nav, #fbar, #swml, #gb, [role='navigation']")) {
+        continue;
+      }
+
+      const anchor =
+        heading.closest("a[href]") ||
+        heading.querySelector("a[href]") ||
+        (heading.parentElement && heading.parentElement.querySelector("a[href]"));
       if (!anchor) continue;
+
       const rawHref = anchor.getAttribute("href") || anchor.href || "";
-      let url = rawHref;
-      if (url.startsWith("/url?")) {
-        try {
-          const parsed = new URL(url, window.location.origin);
-          url = parsed.searchParams.get("q") || parsed.searchParams.get("url") || url;
-        } catch (_) {}
-      }
-      if (!url.startsWith("http") || url.includes("google.com/")) continue;
+      const url = unwrapGoogleUrl(rawHref);
+      if (!url.startsWith("http") || isInternalGoogleUrl(url)) continue;
       if (seenUrls.has(url)) continue;
+
+      const title = (heading.innerText || heading.textContent || "").trim();
+      if (title.length < 2) continue;
+
       seenUrls.add(url);
-
-      const title = (h3.innerText || h3.textContent || "").trim();
-      if (!title) continue;
-
-      const card =
-        h3.closest("div[data-snc]") ||
-        h3.closest("div.MjjYud") ||
-        h3.closest("div.g");
-
-      let snippet = "";
-      if (card) {
-        snippet = (card.innerText || card.textContent || "")
-          .replace(title, "")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 450);
-      }
-
+      const snippet = extractSnippetForElement(heading, title);
       pageResults.push({ title, url, snippet });
     }
+
+    // Pass 2: Fallback for alternative/minimal Google SERP layouts without <h3>
+    if (pageResults.length === 0) {
+      const anchors = root.querySelectorAll("a[href]");
+      for (const anchor of anchors) {
+        if (anchor.closest("header, footer, nav, #fbar, #swml, #gb, [role='navigation']")) {
+          continue;
+        }
+        const rawHref = anchor.getAttribute("href") || anchor.href || "";
+        const url = unwrapGoogleUrl(rawHref);
+        if (!url.startsWith("http") || isInternalGoogleUrl(url)) continue;
+        if (seenUrls.has(url)) continue;
+
+        const title = (anchor.innerText || anchor.textContent || "").replace(/\s+/g, " ").trim();
+        if (title.length < 4) continue;
+
+        seenUrls.add(url);
+        const snippet = extractSnippetForElement(anchor, title);
+        pageResults.push({ title: title.slice(0, 180), url, snippet });
+      }
+    }
+
     return pageResults;
   }
 
-  function findNextPageUrl(doc, currentPageNum) {
+  function findNextPageUrl(doc, currentPageNum, lastPageHitCount) {
     const nextBtn =
       doc.querySelector("a#pnnext") ||
       doc.querySelector('a[aria-label="Next page"]') ||
@@ -242,9 +317,10 @@
       }
     }
 
-    // Fallback: locate Google pagination link matching expected start offset (10, 20, 30...)
     const expectedStart = String(currentPageNum * 10);
-    const navLinks = doc.querySelectorAll('div[role="navigation"] a[href*="start="], table.AaVjTc a[href*="start="]');
+    const navLinks = doc.querySelectorAll(
+      'div[role="navigation"] a[href*="start="], table.AaVjTc a[href*="start="], #botstuff a[href*="start="]'
+    );
     for (const link of navLinks) {
       const href = link.getAttribute("href");
       if (!href) continue;
@@ -253,6 +329,16 @@
         if (u.searchParams.get("start") === expectedStart) {
           return u.toString();
         }
+      } catch (_) {}
+    }
+
+    // Fallback for continuous-scroll / hidden-pagination Google layouts:
+    // If the current page had a healthy batch of results (>= 6), construct the next &start= URL directly.
+    if (lastPageHitCount >= 6) {
+      try {
+        const nextU = new URL(window.location.href);
+        nextU.searchParams.set("start", expectedStart);
+        return nextU.toString();
       } catch (_) {}
     }
 
@@ -268,10 +354,15 @@
 
     setScanningGuard(true);
 
-    const page1Hits = extractResultsFromDoc(currentDoc, seenUrls);
+    let page1Hits = extractResultsFromDoc(currentDoc, seenUrls);
+    // If Google is still hydrating DOM right after document_idle, wait briefly and retry once
+    if (page1Hits.length === 0) {
+      await new Promise((r) => setTimeout(r, 900));
+      page1Hits = extractResultsFromDoc(currentDoc, seenUrls);
+    }
     allResults.push(...page1Hits);
 
-    let nextUrl = findNextPageUrl(currentDoc, pageNum);
+    let nextUrl = findNextPageUrl(currentDoc, pageNum, page1Hits.length);
 
     if (allResults.length === 0 && !nextUrl) {
       return { allResults, pagesScanned: 1, visitedUrls, interruptedByCaptcha: false };
@@ -282,10 +373,16 @@
       headline: nextUrl
         ? `Loading Page 2 of Google Results... (${allResults.length} results on Page 1)`
         : `Processing ${allResults.length} Google Results...`,
-      subtext: "Keep this tab open until syncing finishes. Searched URLs will be cleared from history automatically.",
+      subtext:
+        "Keep this tab open until syncing finishes. Searched URLs will be cleared from history automatically.",
       mode: "scanning",
     });
-    await postStatus("crawling", `Loading Google Page 1 (${allResults.length} results)`, 1, allResults.length);
+    await postStatus(
+      "crawling",
+      `Loading Google Page 1 (${allResults.length} results)`,
+      1,
+      allResults.length
+    );
 
     let interruptedByCaptcha = false;
 
@@ -324,7 +421,7 @@
         const hits = extractResultsFromDoc(currentDoc, seenUrls);
         if (hits.length === 0) break;
         allResults.push(...hits);
-        nextUrl = findNextPageUrl(currentDoc, pageNum);
+        nextUrl = findNextPageUrl(currentDoc, pageNum, hits.length);
       } catch (_) {
         break;
       }
