@@ -126,6 +126,14 @@ pub async fn read_full_http_request(socket: &mut TcpStream) -> Option<String> {
     }
 }
 
+/// Binds the localhost HTTP bridge synchronously so tabs never race against listener startup.
+pub async fn bind_companion_listener(port: u16) -> Result<TcpListener> {
+    let addr = format!("127.0.0.1:{}", port);
+    TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("Failed to bind Companion Listener on http://{}", addr))
+}
+
 /// Starts a localhost HTTP bridge on `127.0.0.1:60067` that receives
 /// live Google Search results and status heartbeats from the user's open browser tabs
 /// via the Stalker Search Companion extension.
@@ -134,15 +142,21 @@ pub async fn listen_for_companion_results(
     expected_batches: usize,
     timeout_secs: u64,
 ) -> Result<Vec<RawSearchResult>> {
-    let addr = format!("127.0.0.1:{}", port);
-    let listener = TcpListener::bind(&addr)
-        .await
-        .with_context(|| format!("Failed to bind Companion Listener on http://{}", addr))?;
+    let listener = bind_companion_listener(port).await?;
+    accept_companion_results(listener, port, expected_batches, timeout_secs).await
+}
 
+/// Runs the accept loop on an already-bound `TcpListener`.
+pub async fn accept_companion_results(
+    listener: TcpListener,
+    port: u16,
+    expected_batches: usize,
+    timeout_secs: u64,
+) -> Result<Vec<RawSearchResult>> {
     println!(
         "\n{} Companion Bridge listening on {} (timeout: {}s)...",
         style("[*]").cyan().bold(),
-        style(format!("http://{}", addr)).green().underlined(),
+        style(format!("http://127.0.0.1:{}", port)).green().underlined(),
         timeout_secs
     );
 

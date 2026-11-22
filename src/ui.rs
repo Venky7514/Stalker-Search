@@ -5,7 +5,7 @@ use crate::dorks::{generate_dorks, ScanTarget};
 use crate::engines::build_engine;
 use crate::engines::free::{run_direct_osint_sweep, run_second_stage_email_pivot};
 use crate::listener::{
-    get_scan_live_state, listen_for_companion_results, mark_scan_finished,
+    accept_companion_results, bind_companion_listener, get_scan_live_state, mark_scan_finished,
     read_full_http_request, set_scan_live_state, DEFAULT_COMPANION_PORT,
 };
 use crate::models::{AnalyzedFinding, DorkQuery, RawSearchResult, RiskLevel};
@@ -280,8 +280,9 @@ async fn execute_ui_scan(req: UiScanRequest) -> Result<UiScanResponse> {
     );
 
     let companion_task = if open_google || incognito {
+        let listener = bind_companion_listener(DEFAULT_COMPANION_PORT).await?;
         Some(tokio::spawn(async move {
-            listen_for_companion_results(DEFAULT_COMPANION_PORT, expected_tabs, 35)
+            accept_companion_results(listener, DEFAULT_COMPANION_PORT, expected_tabs, 70)
                 .await
                 .unwrap_or_default()
         }))

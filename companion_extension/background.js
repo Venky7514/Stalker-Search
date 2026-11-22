@@ -1,9 +1,14 @@
 // Stalker Search Companion Background Script
-// Removes scanned Google Search URLs from the browser's local history after sync
-// so even standard-window searches leave zero search history on the device.
+// 1. Proxies localhost 127.0.0.1:60067 requests cleanly from extension origin
+//    so HTTPS-Only Mode or page CSP on Google never blocks local companion sync.
+// 2. Removes scanned Google Search URLs from local browser history after sync
+//    so even standard-window searches leave zero search history on the device.
 
 (function () {
   const api = typeof browser !== "undefined" ? browser : chrome;
+  const BRIDGE_PING = "http://127.0.0.1:60067/stalker_ping";
+  const BRIDGE_FEED = "http://127.0.0.1:60067/stalker_feed";
+  const BRIDGE_STATUS = "http://127.0.0.1:60067/stalker_status";
 
   if (!api || !api.runtime || !api.runtime.onMessage) {
     return;
@@ -21,9 +26,52 @@
     }
   }
 
+  function sendBridgeRequest(url, options, sendResponse) {
+    fetch(url, options)
+      .then(async (resp) => {
+        const text = await resp.text().catch(() => "");
+        sendResponse({ ok: resp.ok, status: resp.status, text });
+      })
+      .catch(() => {
+        sendResponse({ ok: false, status: 0, text: "" });
+      });
+    return true;
+  }
+
   api.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message && message.action === "clean_history") {
-      // Incognito tabs do not write to disk history
+    if (!message || typeof message.action !== "string") {
+      return false;
+    }
+
+    if (message.action === "bridge_ping") {
+      return sendBridgeRequest(BRIDGE_PING, { method: "GET" }, sendResponse);
+    }
+
+    if (message.action === "bridge_status") {
+      return sendBridgeRequest(
+        BRIDGE_STATUS,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(message.payload || {}),
+        },
+        sendResponse
+      );
+    }
+
+    if (message.action === "bridge_feed") {
+      return sendBridgeRequest(
+        BRIDGE_FEED,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(message.payload || {}),
+        },
+        sendResponse
+      );
+    }
+
+    if (message.action === "clean_history") {
       if (sender && sender.tab && sender.tab.incognito) {
         if (typeof sendResponse === "function") {
           sendResponse({ cleaned: true, incognito: true });
@@ -37,7 +85,6 @@
         }
       }
 
-      // Also remove any redirected Google search history entries for this query from the last 10 minutes
       if (api.history && typeof api.history.search === "function") {
         const queryText = typeof message.query === "string" ? message.query.trim() : "";
         const since = Date.now() - 10 * 60 * 1000;

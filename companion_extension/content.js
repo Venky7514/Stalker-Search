@@ -1,14 +1,11 @@
 // Stalker Search Companion Content Script
 // Open-source, privacy-focused multi-page Google Search crawler.
-// Syncs visible public result links across pages directly to 127.0.0.1:60067,
+// Syncs visible public result links across pages via background script to 127.0.0.1:60067,
 // notifies on human verification checks, protects tabs from accidental early closure,
 // and triggers automatic history removal after sync.
 // Zero cookies, credentials, or external telemetry are ever read or transmitted.
 
 (function () {
-  const BRIDGE_PING = "http://127.0.0.1:60067/stalker_ping";
-  const BRIDGE_FEED = "http://127.0.0.1:60067/stalker_feed";
-  const BRIDGE_STATUS = "http://127.0.0.1:60067/stalker_status";
   const MAX_GOOGLE_PAGES = 10;
   const api = typeof browser !== "undefined" ? browser : chrome;
 
@@ -16,6 +13,25 @@
   let spinnerTimer = null;
   let spinnerStep = 0;
   const SPINNER_FRAMES = ["◐", "◓", "◑", "◒"];
+
+  function sendToBackground(msg) {
+    return new Promise((resolve) => {
+      if (!api || !api.runtime || typeof api.runtime.sendMessage !== "function") {
+        resolve({ ok: false, text: "" });
+        return;
+      }
+      try {
+        const res = api.runtime.sendMessage(msg, (reply) => {
+          resolve(reply || { ok: false, text: "" });
+        });
+        if (res && typeof res.then === "function") {
+          res.then((reply) => resolve(reply || { ok: false, text: "" })).catch(() => resolve({ ok: false, text: "" }));
+        }
+      } catch (_) {
+        resolve({ ok: false, text: "" });
+      }
+    });
+  }
 
   function preventEarlyClose(e) {
     if (!isScanning) return undefined;
@@ -43,37 +59,27 @@
   }
 
   function postStatus(statusType, message, page, hits) {
-    return fetch(BRIDGE_STATUS, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    return sendToBackground({
+      action: "bridge_status",
+      payload: {
         status: statusType,
         message: message || "",
         page: page || 1,
         hits: hits || 0,
-      }),
-    }).catch(() => {});
+      },
+    });
   }
 
   function scrubSearchedUrls(urls, query) {
-    try {
-      if (api && api.runtime && typeof api.runtime.sendMessage === "function") {
-        api.runtime.sendMessage({
-          action: "clean_history",
-          urls: urls || [window.location.href],
-          query: query || "",
-        });
-      }
-    } catch (_) {}
+    sendToBackground({
+      action: "clean_history",
+      urls: urls || [window.location.href],
+      query: query || "",
+    });
   }
 
   function createOrUpdateHud(options) {
-    const {
-      tagText,
-      headline,
-      subtext,
-      mode, // "scanning" | "warn" | "done" | "idle"
-    } = options;
+    const { tagText, headline, subtext, mode } = options;
 
     let hud = document.getElementById("stalker-companion-banner");
     if (!hud) {
@@ -182,7 +188,7 @@
 
   function extractResultsFromDoc(doc, seenUrls) {
     const pageResults = [];
-    const headings = doc.querySelectorAll("a h3");
+    const headings = doc.querySelectorAll("a h3, a [role='heading']");
 
     for (const h3 of headings) {
       const anchor = h3.closest("a");
@@ -221,22 +227,39 @@
     return pageResults;
   }
 
-  function findNextPageUrl(doc) {
+  function findNextPageUrl(doc, currentPageNum) {
     const nextBtn =
       doc.querySelector("a#pnnext") ||
       doc.querySelector('a[aria-label="Next page"]') ||
-      doc.querySelector('a[aria-label="Next"]');
-    if (!nextBtn) return null;
-    const href = nextBtn.getAttribute("href");
-    if (!href) return null;
-    try {
-      return new URL(href, window.location.origin).toString();
-    } catch (_) {
-      return null;
+      doc.querySelector('a[aria-label="Next"]') ||
+      doc.querySelector('td.d6cvqb a[href*="start="]');
+    if (nextBtn) {
+      const href = nextBtn.getAttribute("href");
+      if (href) {
+        try {
+          return new URL(href, window.location.origin).toString();
+        } catch (_) {}
+      }
     }
+
+    // Fallback: locate Google pagination link matching expected start offset (10, 20, 30...)
+    const expectedStart = String(currentPageNum * 10);
+    const navLinks = doc.querySelectorAll('div[role="navigation"] a[href*="start="], table.AaVjTc a[href*="start="]');
+    for (const link of navLinks) {
+      const href = link.getAttribute("href");
+      if (!href) continue;
+      try {
+        const u = new URL(href, window.location.origin);
+        if (u.searchParams.get("start") === expectedStart) {
+          return u.toString();
+        }
+      } catch (_) {}
+    }
+
+    return null;
   }
 
-  async function crawlAllGooglePages(query) {
+  async function crawlAllGooglePages() {
     const seenUrls = new Set();
     const visitedUrls = [window.location.href];
     const allResults = [];
@@ -248,7 +271,7 @@
     const page1Hits = extractResultsFromDoc(currentDoc, seenUrls);
     allResults.push(...page1Hits);
 
-    let nextUrl = findNextPageUrl(currentDoc);
+    let nextUrl = findNextPageUrl(currentDoc, pageNum);
 
     if (allResults.length === 0 && !nextUrl) {
       return { allResults, pagesScanned: 1, visitedUrls, interruptedByCaptcha: false };
@@ -301,7 +324,7 @@
         const hits = extractResultsFromDoc(currentDoc, seenUrls);
         if (hits.length === 0) break;
         allResults.push(...hits);
-        nextUrl = findNextPageUrl(currentDoc);
+        nextUrl = findNextPageUrl(currentDoc, pageNum);
       } catch (_) {
         break;
       }
@@ -310,90 +333,73 @@
     return { allResults, pagesScanned: pageNum, visitedUrls, interruptedByCaptcha };
   }
 
-  // Check if local Stalker Search listener is active on 127.0.0.1:60067
-  fetch(BRIDGE_PING)
-    .then((r) => r.text())
-    .then(async (txt) => {
-      if (txt.trim() !== "stalker_pong") return;
+  sendToBackground({ action: "bridge_ping" }).then(async (pingReply) => {
+    if (!pingReply || !pingReply.ok || (pingReply.text || "").trim() !== "stalker_pong") {
+      return;
+    }
 
-      const params = new URLSearchParams(window.location.search);
-      const query = params.get("q") || "";
+    const params = new URLSearchParams(window.location.search);
+    const query = params.get("q") || "";
 
-      // If Google is currently prompting for Human Verification in this tab (e.g. Incognito),
-      // alert the user loudly in both this tab and the local Web UI and wait without touching the challenge.
-      if (isCaptchaOrVerifyPage(document)) {
-        setScanningGuard(true);
-        createOrUpdateHud({
-          tagText: "HUMAN VERIFICATION NEEDED",
-          headline: "Please Verify You Are Human in This Tab",
-          subtext:
-            "Google blocked automated pagination in this window. Complete the verification check here (do NOT close this tab), or switch to 'Open Google Search (Faster)' mode.",
-          mode: "warn",
-        });
-        await postStatus(
-          "human_verify_needed",
-          "Google requires human verification in the opened browser tab. Complete it there to continue.",
-          1,
-          0
-        );
-        return;
-      }
+    if (isCaptchaOrVerifyPage(document)) {
+      setScanningGuard(true);
+      createOrUpdateHud({
+        tagText: "HUMAN VERIFICATION NEEDED",
+        headline: "Please Verify You Are Human in This Tab",
+        subtext:
+          "Google blocked automated pagination in this window. Complete the verification check here (do NOT close this tab), or switch to 'Open Google Search (Faster)' mode.",
+        mode: "warn",
+      });
+      await postStatus(
+        "human_verify_needed",
+        "Google requires human verification in the opened browser tab. Complete it there to continue.",
+        1,
+        0
+      );
+      return;
+    }
 
-      const { allResults, pagesScanned, visitedUrls, interruptedByCaptcha } =
-        await crawlAllGooglePages(query);
+    const { allResults, pagesScanned, visitedUrls, interruptedByCaptcha } =
+      await crawlAllGooglePages();
 
-      if (interruptedByCaptcha) {
-        await postStatus(
-          "human_verify_needed",
-          "Google paused pagination for verification after collecting initial results.",
-          pagesScanned,
-          allResults.length
-        );
-      }
+    if (interruptedByCaptcha) {
+      await postStatus(
+        "human_verify_needed",
+        "Google paused pagination for verification after collecting initial results.",
+        pagesScanned,
+        allResults.length
+      );
+    }
 
-      fetch(BRIDGE_FEED, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, results: allResults }),
-      })
-        .then((r) => {
-          setScanningGuard(false);
-          scrubSearchedUrls(visitedUrls, query);
-
-          if (r.ok) {
-            const isPrivate =
-              api &&
-              api.extension &&
-              api.extension.inIncognitoContext;
-
-            const historyNote = isPrivate
-              ? "Private window used (zero history saved). Safe to close this tab now."
-              : "Search URL removed from browser history. Safe to close this tab now.";
-
-            if (allResults.length > 0) {
-              createOrUpdateHud({
-                tagText: "SAFE TO CLOSE TAB",
-                headline: `Done! Synced ${allResults.length} Results Across ${pagesScanned} Page${pagesScanned > 1 ? "s" : ""}`,
-                subtext: historyNote,
-                mode: "done",
-              });
-            } else {
-              createOrUpdateHud({
-                tagText: "SAFE TO CLOSE TAB",
-                headline: "Scan Complete · 0 Results Found for This Query",
-                subtext: historyNote,
-                mode: "idle",
-              });
-            }
-          } else {
-            setScanningGuard(false);
-          }
-        })
-        .catch(() => {
-          setScanningGuard(false);
-        });
-    })
-    .catch(() => {
-      // Local scanner not listening right now
+    const feedReply = await sendToBackground({
+      action: "bridge_feed",
+      payload: { query, results: allResults },
     });
+
+    setScanningGuard(false);
+    scrubSearchedUrls(visitedUrls, query);
+
+    if (feedReply && feedReply.ok) {
+      const isPrivate = api && api.extension && api.extension.inIncognitoContext;
+      const historyNote = isPrivate
+        ? "Private window used (zero history saved). Safe to close this tab now."
+        : "Search URL removed from browser history. Safe to close this tab now.";
+
+      if (allResults.length > 0) {
+        createOrUpdateHud({
+          tagText: "SAFE TO CLOSE TAB",
+          headline: `Done! Synced ${allResults.length} Results Across ${pagesScanned} Page${pagesScanned > 1 ? "s" : ""}`,
+          subtext: historyNote,
+          mode: "done",
+        });
+      } else {
+        createOrUpdateHud({
+          tagText: "SAFE TO CLOSE TAB",
+          headline: "Scan Complete · 0 Results Found for This Query",
+          subtext: historyNote,
+          mode: "idle",
+        });
+      }
+    }
+  });
 })();
