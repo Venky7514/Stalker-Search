@@ -1,8 +1,16 @@
 # Stalker Search
 
-An open-source, local-first digital footprint & personal OSINT privacy scanner written in Rust with a Firefox-based companion browser extension.
+An open-source, local-first personal privacy & self-OSINT scanner written in Rust with a Firefox-based companion browser extension.
 
-Stalker Search helps you discover public web mentions, social profiles, indexed documents (`.pdf`, `.docx`, `.xlsx`), public Google Calendars (`.ics`), and exposed contact details (emails, phone numbers) tied to a name, email, or phone number so you can lock down your online privacy.
+**Why Stalker Search exists:** Before a stalker, doxxer, or malicious actor can piece together your digital life using Open-Source Intelligence (OSINT), Stalker Search helps **you** see what is publicly exposed under your name, email, or phone number—so you don't get tracked or caught off guard and can take down exposed files, public calendars, profiles, and contact leaks early.
+
+> **Disclaimer:** This software is strictly intended for defensive privacy awareness and authorized use. **Use it only for personal self-audits, authorized criminal investigations, authorized penetration testing, or open-source security projects.** Do not use this tool for harassment, stalking, or unauthorized surveillance.
+
+---
+
+## Credits & Inspiration
+
+- Inspired in part by **[mxrch/GHunt](https://github.com/mxrch/GHunt)** for local browser companion architecture and public Google endpoint/email pivoting techniques.
 
 ---
 
