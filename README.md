@@ -1,6 +1,6 @@
 # Stalker Search
 
-A 100% free, zero-telemetry, local-first personal privacy & self-OSINT desktop application built in Rust with a Firefox-based companion browser extension.
+A 100% free, open-source, zero-telemetry, local-first personal privacy & self OSINT desktop application with a Firefox-based companion browser extension.
 
 **Why Stalker Search exists:** Before a stalker, doxxer, or malicious actor can piece together your digital life using Open-Source Intelligence (OSINT), Stalker Search helps **you** see what is publicly exposed under your name, email, or phone number (including 10-digit, 11-digit, and `+91` / country-code formats)—so you can find and remove exposed documents, public calendars, profiles, and contact leaks early.
 
@@ -13,7 +13,7 @@ A 100% free, zero-telemetry, local-first personal privacy & self-OSINT desktop a
 ## Supported Browsers (Firefox-Based Only · LibreWolf Recommended)
 
 Stalker Search's browser companion works exclusively with **Firefox-based browsers** because privacy-hardened Gecko browsers are far better suited for OSINT:
-- **LibreWolf** *(specifically used & recommended by the author)*
+- **LibreWolf** *(specifically used & recommended by me)*
 - **Mozilla Firefox**, **Zen Browser**, **Floorp**, **Waterfox**, **Mullvad Browser**
 
 *(Chromium browsers are intentionally not used for the companion extension.)*
@@ -24,8 +24,8 @@ Stalker Search's browser companion works exclusively with **Firefox-based browse
 
 ### 1. Download & Unblock the Release Files
 Go to **[GitHub Releases](https://github.com/Venky7514/Stalker-Search/releases)** and download:
-1. **`stalker-search-v9.exe`** *(Standalone Windows 10/11 64-bit desktop app)*
-2. **`stalker-search-companion-v9.zip`** *(Firefox/LibreWolf companion extension)*
+1. **`stalker-search.exe`** *(Standalone Windows 10/11 64-bit desktop app)*
+2. **`stalker-search-companion.zip`** *(Firefox/LibreWolf companion extension)*
 
 > **Important — Unblock the `.exe` on Windows:** Because this is a 100% free, zero-telemetry open-source binary without a paid commercial code-signing certificate, Windows may mark the downloaded file as blocked:
 > - **Right-click `stalker-search-v9.exe` → Properties → check `Unblock` at the bottom → click Apply / OK** *(or if Windows SmartScreen appears, click **More info** → **Run anyway**)*, **OR**
@@ -49,7 +49,7 @@ You can install the add-on directly or load it as a **Temporary Add-on**. **Load
 ---
 
 ### 3. Run Your Scan
-1. Double-click **`stalker-search-v9.exe`** — it opens in its own standalone pure-black desktop software window.
+1. Double-click **`stalker-search-v9.exe`** — it opens in its own desktop software window.
 2. Enter at least **one** of **Name**, **Email**, or **Phone Number** *(add comma-separated **Context** like college, city, or company to narrow common names)*.
 3. Choose a Search Mode and click **Search Footprint**:
    - **Open Google Search (Faster)**: Uses your active Firefox/LibreWolf window to avoid CAPTCHAs, crawls up to 10 pages of Google results per query, automatically deletes the searched query URLs from your browser history, and **auto-closes the tabs** once synced.
