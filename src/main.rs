@@ -596,6 +596,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 format!(r"{}\Programs\LibreWolf\librewolf.exe", local_app_data),
                 "/usr/bin/librewolf".to_string(),
                 "/usr/local/bin/librewolf".to_string(),
+                "/var/lib/flatpak/exports/bin/io.gitlab.librewolf-community".to_string(),
             ],
         },
         BrowserSpec {
@@ -611,6 +612,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 "/usr/local/bin/firefox".to_string(),
                 "/snap/bin/firefox".to_string(),
                 "/usr/bin/firefox-esr".to_string(),
+                "/var/lib/flatpak/exports/bin/org.mozilla.firefox".to_string(),
             ],
         },
         BrowserSpec {
@@ -623,6 +625,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 format!(r"{}\Programs\Zen Browser\zen.exe", local_app_data),
                 "/usr/bin/zen".to_string(),
                 "/usr/local/bin/zen".to_string(),
+                "/var/lib/flatpak/exports/bin/app.zen_browser.zen".to_string(),
             ],
         },
         BrowserSpec {
@@ -634,6 +637,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 format!(r"{}\Ablaze Floorp\floorp.exe", program_files),
                 format!(r"{}\Floorp\floorp.exe", program_files),
                 "/usr/bin/floorp".to_string(),
+                "/var/lib/flatpak/exports/bin/one.ablaze.floorp".to_string(),
             ],
         },
         BrowserSpec {
@@ -644,6 +648,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
             candidate_paths: vec![
                 format!(r"{}\Waterfox\waterfox.exe", program_files),
                 "/usr/bin/waterfox".to_string(),
+                "/var/lib/flatpak/exports/bin/net.waterfox.waterfox".to_string(),
             ],
         },
         BrowserSpec {

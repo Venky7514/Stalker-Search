@@ -63,13 +63,22 @@ You can install the addon directly or load it as a **Temporary Addon**. **Loadin
 
 ## Running on Linux (or Building From Source)
 
-Stalker Search works natively on **Linux** (automatically detecting `/usr/bin/librewolf`, `/usr/bin/firefox`, `floorp`, `waterfox`, or `xdg-open`):
+Stalker Search works natively across **Ubuntu / Debian / Kali / Mint**, **Arch Linux**, and **Fedora** (automatically detecting `/usr/bin/librewolf`, `/usr/bin/firefox`, `zen`, `floorp`, `waterfox`, Flatpak installs, or `xdg-open`):
 
-1. **Install Rust & OpenSSL headers** *(Ubuntu / Debian / Mint / Kali)*:
-   ```bash
-   sudo apt update && sudo apt install -y build-essential pkg-config libssl-dev
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-   ```
+1. **Install Rust & OpenSSL headers**:
+   - **Ubuntu / Debian / Mint / Kali**:
+     ```bash
+     sudo apt update && sudo apt install -y build-essential pkg-config libssl-dev
+     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+     ```
+   - **Arch Linux / Manjaro / EndeavourOS**:
+     ```bash
+     sudo pacman -S --needed base-devel pkgconf openssl rust
+     ```
+   - **Fedora / RHEL**:
+     ```bash
+     sudo dnf install -y gcc pkg-config openssl-devel rust cargo
+     ```
 2. **Clone and run**:
    ```bash
    git clone https://github.com/Venky7514/Stalker-Search.git
