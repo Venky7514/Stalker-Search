@@ -21,13 +21,24 @@ pub struct CompanionLiveState {
     pub results_count: usize,
     pub human_verify_needed: bool,
     pub status_message: String,
+    pub companion_connected: bool,
+    pub incognito_allowed: Option<bool>,
 }
 
 static LIVE_STATE: Lazy<Mutex<CompanionLiveState>> =
     Lazy::new(|| Mutex::new(CompanionLiveState::default()));
 
+pub fn update_companion_heartbeat(incognito_allowed: bool) {
+    if let Ok(mut st) = LIVE_STATE.lock() {
+        st.companion_connected = true;
+        st.incognito_allowed = Some(incognito_allowed);
+    }
+}
+
 pub fn set_scan_live_state(active: bool, browser_mode: &str, expected_tabs: usize, message: &str) {
     if let Ok(mut st) = LIVE_STATE.lock() {
+        let prev_connected = st.companion_connected;
+        let prev_incognito = st.incognito_allowed;
         *st = CompanionLiveState {
             active,
             browser_mode: browser_mode.to_string(),
@@ -37,6 +48,8 @@ pub fn set_scan_live_state(active: bool, browser_mode: &str, expected_tabs: usiz
             results_count: 0,
             human_verify_needed: false,
             status_message: message.to_string(),
+            companion_connected: prev_connected,
+            incognito_allowed: prev_incognito,
         };
     }
 }
@@ -54,12 +67,20 @@ pub fn get_scan_live_state() -> CompanionLiveState {
         .unwrap_or_default()
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Deserialize)]
 struct CompanionFeedPayload {
     #[serde(default)]
     query: Option<String>,
     #[serde(default)]
     results: Vec<CompanionHit>,
+    #[serde(default = "default_true")]
+    done: bool,
+    #[serde(default)]
+    diag: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,7 +184,7 @@ pub async fn accept_companion_results(
     let mut collected = Vec::new();
     let mut batches_received = 0usize;
     let mut hard_deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
-    let mut idle_deadline = tokio::time::Instant::now() + Duration::from_secs(12);
+    let mut idle_deadline = tokio::time::Instant::now() + Duration::from_secs(20);
 
     loop {
         let active_deadline = hard_deadline.min(idle_deadline);
@@ -199,7 +220,7 @@ pub async fn accept_companion_results(
             if let Ok(mut st) = LIVE_STATE.lock() {
                 st.tabs_pinged += 1;
             }
-            idle_deadline = tokio::time::Instant::now() + Duration::from_secs(18);
+            idle_deadline = idle_deadline.max(tokio::time::Instant::now() + Duration::from_secs(20));
             let body = "stalker_pong";
             let resp = format!(
                 "HTTP/1.1 200 OK\r\n\
@@ -224,7 +245,9 @@ pub async fn accept_companion_results(
                         hard_deadline = hard_deadline.max(
                             tokio::time::Instant::now() + Duration::from_secs(90),
                         );
-                        idle_deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+                        idle_deadline = idle_deadline.max(
+                            tokio::time::Instant::now() + Duration::from_secs(60),
+                        );
                         if let Ok(mut st) = LIVE_STATE.lock() {
                             st.human_verify_needed = true;
                             st.status_message = if payload.message.is_empty() {
@@ -235,8 +258,11 @@ pub async fn accept_companion_results(
                             };
                         }
                     } else {
-                        idle_deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+                        idle_deadline = idle_deadline.max(
+                            tokio::time::Instant::now() + Duration::from_secs(18),
+                        );
                         if let Ok(mut st) = LIVE_STATE.lock() {
+                            st.human_verify_needed = false;
                             st.status_message = if !payload.message.is_empty() {
                                 payload.message
                             } else {
@@ -267,7 +293,6 @@ pub async fn accept_companion_results(
 
         // Handle Results Feed (`POST /stalker_feed`)
         if first_line.starts_with("POST /stalker_feed") {
-            idle_deadline = tokio::time::Instant::now() + Duration::from_secs(7);
             if let Some(body_idx) = raw_req.find("\r\n\r\n") {
                 let json_body = &raw_req[body_idx + 4..];
                 if let Ok(payload) = serde_json::from_str::<CompanionFeedPayload>(json_body) {
@@ -279,10 +304,15 @@ pub async fn accept_companion_results(
                         if !hit.url.starts_with("http://") && !hit.url.starts_with("https://") {
                             continue;
                         }
-                        if hit.url.contains("google.com/") {
+                        if hit.url.contains("google.com/") && !hit.url.contains("/goto?") {
                             continue;
                         }
-                        let cat = infer_category(&hit.url, &hit.title, DorkCategory::GeneralMentions);
+                        let url_and_cite = format!("{} {}", hit.url, hit.snippet);
+                        let cat = infer_category(
+                            &url_and_cite,
+                            &hit.title,
+                            DorkCategory::GeneralMentions,
+                        );
                         collected.push(RawSearchResult {
                             title: hit.title,
                             url: hit.url,
@@ -292,7 +322,20 @@ pub async fn accept_companion_results(
                             engine: "Browser Companion Bridge".to_string(),
                         });
                     }
-                    batches_received += 1;
+                    if payload.done {
+                        batches_received += 1;
+                        idle_deadline = idle_deadline.max(
+                            tokio::time::Instant::now() + Duration::from_secs(14),
+                        );
+                    } else {
+                        // Tab is navigating to the next Google page in real browser context
+                        idle_deadline = idle_deadline.max(
+                            tokio::time::Instant::now() + Duration::from_secs(20),
+                        );
+                        hard_deadline = hard_deadline.max(
+                            tokio::time::Instant::now() + Duration::from_secs(35),
+                        );
+                    }
                     if let Ok(mut st) = LIVE_STATE.lock() {
                         st.tabs_completed = batches_received;
                         st.results_count += count;
@@ -301,12 +344,18 @@ pub async fn accept_companion_results(
                             batches_received, expected_batches, st.results_count
                         );
                     }
+                    let diag_suffix = match (&payload.diag, count) {
+                        (Some(d), 0) if !d.is_empty() => format!(" [{}]", d),
+                        _ => String::new(),
+                    };
                     println!(
-                        "{} Companion Bridge received {} Google results from browser tab ({}/{})!",
+                        "{} Companion Bridge received {} Google results from browser tab ({}/{}{})!{}",
                         style("[+]").green().bold(),
                         style(count).bold(),
                         batches_received,
-                        expected_batches
+                        expected_batches,
+                        if payload.done { "" } else { ", loading next page" },
+                        diag_suffix
                     );
                 }
             }

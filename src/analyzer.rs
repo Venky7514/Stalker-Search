@@ -18,7 +18,23 @@ static EMAIL_REGEX: Lazy<Regex> = Lazy::new(|| {
 
 static PHONE_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\b[6-9]\d{9}\b)\b",
+        r"(?x)
+        (?:
+            # 1. Explicit +CC or 00CC country code (+91, +1, +44, +971, etc.) + 9 to 11 digits (grouped or contiguous)
+            (?:\+\d{1,3}|00\d{1,3})[\s.-]?(?:\(?\d{2,5}\)?[\s.-]?){1,3}\d{3,6}
+            |
+            # 2. Country code 91 (without +) or 11-digit leading-0 before Indian 10-digit mobile (contiguous, 5-5, or 3-3-4)
+            \b(?:0?91[\s.-]?|0[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}\b
+            |
+            \b(?:0?91[\s.-]?|0[\s.-]?)?[6-9]\d{2}[\s.-]\d{3}[\s.-]\d{4}\b
+            |
+            # 3. 11-digit phone numbers (e.g. 0 + 10 digits, 1 + 10 digits, or 11-digit mobile/landline leak)
+            \b(?:0\d{10}|1[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}|[6-9]\d{10})\b
+            |
+            # 4. Standard formatted 10-digit numbers (xxx-xxx-xxxx / (xxx) xxx-xxxx)
+            (?:\(\d{3}\)[\s.-]?\d{3}[\s.-]\d{4}|\b\d{3}[\s.-]\d{3}[\s.-]\d{4}\b)
+        )
+        ",
     )
     .expect("Valid phone regex")
 });
@@ -242,6 +258,57 @@ pub fn normalize_url(raw_url: &str) -> (String, String) {
     }
 }
 
+/// Extracts the actual target domain from a `[Source: ...]` breadcrumb tag or title
+/// when Google serves a signed-out `/goto?url=CAES...` encrypted redirect URL.
+fn extract_cite_domain(snippet: &str, title: &str) -> Option<String> {
+    if let Some(start_idx) = snippet.find("[Source: ") {
+        let rest = &snippet[start_idx + "[Source: ".len()..];
+        if let Some(end_idx) = rest.find(']') {
+            let raw_source = rest[..end_idx].trim();
+            for part in raw_source.split('|') {
+                let token = part.trim();
+                if token.contains('.') && !token.contains(' ') {
+                    if let Ok(parsed) = Url::parse(token) {
+                        if let Some(h) = parsed.host_str() {
+                            return Some(h.to_lowercase());
+                        }
+                    }
+                    let with_scheme = format!("https://{}", token);
+                    if let Ok(parsed) = Url::parse(&with_scheme) {
+                        if let Some(h) = parsed.host_str() {
+                            return Some(h.to_lowercase());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let combined = format!("{} {}", snippet, title).to_lowercase();
+    for (kw, dom) in [
+        ("linkedin", "linkedin.com"),
+        ("instagram", "instagram.com"),
+        ("facebook", "facebook.com"),
+        ("github", "github.com"),
+        ("youtube", "youtube.com"),
+        ("reddit", "reddit.com"),
+        ("quora", "quora.com"),
+        ("medium", "medium.com"),
+        ("researchgate", "researchgate.net"),
+        ("academia.edu", "academia.edu"),
+        ("pinterest", "pinterest.com"),
+        ("threads", "threads.net"),
+        ("tiktok", "tiktok.com"),
+        ("scribd", "scribd.com"),
+        ("twitter", "x.com"),
+    ] {
+        if combined.contains(kw) {
+            return Some(dom.to_string());
+        }
+    }
+    None
+}
+
 /// Filters out partial single-name hits, deduplicates URLs, safely skips login/WAF sites during
 /// optional deep verification, and scores confidence & privacy risk.
 pub async fn analyze_results(
@@ -256,7 +323,12 @@ pub async fn analyze_results(
             continue;
         }
 
-        let (canonical_url, domain) = normalize_url(&hit.url);
+        let (canonical_url, mut domain) = normalize_url(&hit.url);
+        if domain.contains("google.") && canonical_url.contains("/goto?") {
+            if let Some(real_domain) = extract_cite_domain(&hit.snippet, &hit.title) {
+                domain = real_domain;
+            }
+        }
         let entry = grouped_map
             .entry(canonical_url.clone())
             .or_insert_with(|| GroupedHit {
@@ -344,7 +416,7 @@ async fn evaluate_single_hit(
 
     let url_lower = hit.canonical_url.to_lowercase();
     let is_binary_doc = DOC_EXTENSIONS.iter().any(|ext| url_lower.ends_with(ext));
-    let is_protected = is_login_or_waf_protected(&hit.domain);
+    let is_protected = is_login_or_waf_protected(&hit.domain) || url_lower.contains("/goto?");
     let is_broker = is_data_broker(&hit.domain);
 
     if deep_verify && !is_binary_doc && !is_protected {
@@ -394,10 +466,14 @@ async fn evaluate_single_hit(
         }
     }
 
-    // Scan title + snippet + page text (excluding raw URL path digits) for phone numbers
+    // Scan title + snippet + page text (excluding raw URL path digits) for phone numbers (10-digit, 11-digit, and +CC)
     let text_without_url = inspect_text.replace(&hit.canonical_url, " ");
     for mat in PHONE_REGEX.find_iter(&text_without_url) {
-        pii_leaks_set.insert(PiiLeakType::Phone(mat.as_str().to_string()));
+        let candidate = mat.as_str().trim();
+        let digit_count = candidate.chars().filter(|c| c.is_ascii_digit()).count();
+        if (10..=13).contains(&digit_count) {
+            pii_leaks_set.insert(PiiLeakType::Phone(candidate.to_string()));
+        }
     }
 
     for kw in SENSITIVE_KEYWORDS {
@@ -718,5 +794,21 @@ mod tests {
         assert!(is_login_or_waf_protected("www.instagram.com"));
         assert!(is_login_or_waf_protected("www.zoominfo.com"));
         assert!(!is_login_or_waf_protected("oldlinux.org"));
+    }
+
+    #[test]
+    fn test_phone_regex_tracks_10_11_and_country_code_numbers() {
+        let sample = "Contacts: 9876543210, 09876543210, 98765432109, +91 9876543210, +91-98765-43210, +919876543210, 919876543210, +1 (555) 234-5678";
+        let matched: Vec<String> = PHONE_REGEX
+            .find_iter(sample)
+            .map(|m| m.as_str().trim().to_string())
+            .collect();
+        assert!(matched.contains(&"9876543210".to_string()));
+        assert!(matched.contains(&"09876543210".to_string()));
+        assert!(matched.contains(&"98765432109".to_string()));
+        assert!(matched.contains(&"+91 9876543210".to_string()));
+        assert!(matched.contains(&"+91-98765-43210".to_string()));
+        assert!(matched.contains(&"+919876543210".to_string()));
+        assert!(matched.contains(&"919876543210".to_string()));
     }
 }

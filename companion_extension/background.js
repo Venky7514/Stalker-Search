@@ -9,10 +9,47 @@
   const BRIDGE_PING = "http://127.0.0.1:60067/stalker_ping";
   const BRIDGE_FEED = "http://127.0.0.1:60067/stalker_feed";
   const BRIDGE_STATUS = "http://127.0.0.1:60067/stalker_status";
+  const UI_HEARTBEAT = "http://127.0.0.1:7878/api/companion_heartbeat";
 
   if (!api || !api.runtime || !api.runtime.onMessage) {
     return;
   }
+
+  function queryIncognitoAllowed() {
+    return new Promise((resolve) => {
+      if (api.extension && typeof api.extension.isAllowedIncognitoAccess === "function") {
+        try {
+          if (typeof browser !== "undefined") {
+            browser.extension
+              .isAllowedIncognitoAccess()
+              .then((allowed) => resolve(Boolean(allowed)))
+              .catch(() => resolve(false));
+            return;
+          }
+          api.extension.isAllowedIncognitoAccess((allowed) => resolve(Boolean(allowed)));
+          return;
+        } catch (_) {}
+      }
+      resolve(false);
+    });
+  }
+
+  // Push live Firefox Companion & Private Window permission state to the local Stalker Search desktop app
+  async function reportCompanionHeartbeat() {
+    try {
+      const incognitoAllowed = await queryIncognitoAllowed();
+      await fetch(UI_HEARTBEAT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          installed: true,
+          incognito_allowed: incognitoAllowed,
+        }),
+      });
+    } catch (_) {}
+  }
+  reportCompanionHeartbeat();
+  setInterval(reportCompanionHeartbeat, 2000);
 
   function safeDeleteUrl(url) {
     if (!api.history || typeof api.history.deleteUrl !== "function") return;
@@ -43,6 +80,34 @@
 
   api.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!message || typeof message.action !== "string") {
+      return false;
+    }
+
+    if (message.action === "check_incognito_access") {
+      return queryIncognitoAllowed().then((allowed) => ({
+        installed: true,
+        incognitoAllowed: allowed,
+      }));
+    }
+
+    if (message.action === "close_tab") {
+      if (
+        sender &&
+        sender.tab &&
+        typeof sender.tab.id === "number" &&
+        api.tabs &&
+        typeof api.tabs.remove === "function"
+      ) {
+        try {
+          const p = api.tabs.remove(sender.tab.id);
+          if (p && typeof p.catch === "function") {
+            p.catch(() => {});
+          }
+        } catch (_) {}
+      }
+      if (typeof sendResponse === "function") {
+        sendResponse({ closed: true });
+      }
       return false;
     }
 

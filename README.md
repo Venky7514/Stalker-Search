@@ -1,8 +1,8 @@
 # Stalker Search
 
-An open-source, local-first personal privacy & self-OSINT scanner built in Rust with a Firefox-based companion browser extension.
+A 100% free, zero-telemetry, local-first personal privacy & self-OSINT desktop application built in Rust with a Firefox-based companion browser extension.
 
-**Why Stalker Search exists:** Before a stalker, doxxer, or malicious actor can piece together your digital life using Open-Source Intelligence (OSINT), Stalker Search helps **you** see what is publicly exposed under your name, email, or phone number—so you don't get caught off guard and can remove exposed documents, public calendars, profiles, and contact leaks early.
+**Why Stalker Search exists:** Before a stalker, doxxer, or malicious actor can piece together your digital life using Open-Source Intelligence (OSINT), Stalker Search helps **you** see what is publicly exposed under your name, email, or phone number (including 10-digit, 11-digit, and `+91` / country-code formats)—so you can find and remove exposed documents, public calendars, profiles, and contact leaks early.
 
 > **Disclaimer:** This software is strictly intended for defensive privacy awareness and authorized use. **Use it only for personal self-audits, authorized criminal investigations, authorized penetration testing, or open-source security projects.** Do not use this tool for harassment, stalking, or unauthorized surveillance.
 
@@ -10,49 +10,58 @@ An open-source, local-first personal privacy & self-OSINT scanner built in Rust 
 
 ---
 
-## Supported Browsers
+## Supported Browsers (Firefox-Based Only · LibreWolf Recommended)
 
-Works with **Firefox-based browsers**:
-- **Mozilla Firefox**, **LibreWolf**, **Zen Browser**, **Floorp**, **Waterfox**, **Mullvad Browser**
+Stalker Search's browser companion works exclusively with **Firefox-based browsers** because privacy-hardened Gecko browsers are far better suited for OSINT:
+- **LibreWolf** *(specifically used & recommended by the author)*
+- **Mozilla Firefox**, **Zen Browser**, **Floorp**, **Waterfox**, **Mullvad Browser**
 
-*(Chromium browsers such as Chrome are not supported.)*
+*(Chromium browsers are intentionally not used for the companion extension.)*
 
 ---
 
-## Option 1: Quick Start (Recommended — No Coding or Build Tools Needed)
+## Quick Start (Recommended — No Coding or Build Tools Needed)
 
-### 1. Download the Release Files
+### 1. Download & Unblock the Release Files
 Go to **[GitHub Releases](https://github.com/Venky7514/Stalker-Search/releases)** and download:
-1. **`stalker-search.exe`** *(Windows 10/11 64-bit)*
-2. **`stalker-search-companion.zip`** *(unzip this into a folder)*
+1. **`stalker-search-v9.exe`** *(Standalone Windows 10/11 64-bit desktop app)*
+2. **`stalker-search-companion-v9.zip`** *(Firefox/LibreWolf companion extension)*
 
-### 2. Add the Companion Extension to Your Browser
-In **Firefox / LibreWolf / Zen / Floorp / Waterfox**:
-1. Open a new tab and go to:
+> **Important — Unblock the `.exe` on Windows:** Because this is a 100% free, zero-telemetry open-source binary without a paid commercial code-signing certificate, Windows may mark the downloaded file as blocked:
+> - **Right-click `stalker-search-v9.exe` → Properties → check `Unblock` at the bottom → click Apply / OK** *(or if Windows SmartScreen appears, click **More info** → **Run anyway**)*, **OR**
+> - In PowerShell, run: `Unblock-File .\stalker-search-v9.exe`
+
+---
+
+### 2. Add the Companion Extension (Temporary Mode Preferred)
+You can install the add-on directly or load it as a **Temporary Add-on**. **Loading it as a Temporary Add-on is preferred** because the extension only stays in memory for your active OSINT session and is automatically removed as soon as you close your browser:
+
+1. In **LibreWolf** or **Firefox**, open a tab and go to:
    ```text
    about:debugging#/runtime/this-firefox
    ```
 2. Click **"Load Temporary Add-on..."**.
-3. Open the unzipped companion folder and select **`manifest.json`**.
-4. *(If you want to use **Incognito Search (Private)**)*:
-   - Open **`about:addons`** → click **Stalker Search Companion** → set **Run in Private Windows** to **Allow**.
-
-*(Note: Temporary add-ons stay loaded until you close the browser; repeat Step 2 if you restart the browser, or install directly from Mozilla Add-ons once published.)*
-
-### 3. Run Your First Scan
-1. Double-click **`stalker-search.exe`** — the dashboard will open automatically in your browser.
-2. Enter at least **one** of **Name**, **Email**, or **Phone Number** *(add comma-separated **Context** like college, city, or company to narrow common names)*.
-3. Pick a search mode and click **Search Footprint**:
-   - **Open Google Search (Faster)**: Opens Google tabs in your active browser to avoid CAPTCHAs, scans all result pages, and automatically deletes temporary scan URLs from local browser history.
-   - **Incognito Search (Private)**: Opens Google tabs in a Private window with zero saved history *(complete any "Verify you are human" check directly inside the Incognito tab if prompted)*.
-   - **Background APIs Only**: Silently scans 18 public datasets (GitHub, Reddit, News RSS, arXiv, OpenAlex, ORCID, Google Calendar `.ics`, Gravatar, OpenPGP, etc.) without opening Google tabs.
-4. **Keep the opened Google tabs open** while the on-page banner shows **`DO NOT CLOSE TAB`**. Once it turns green (**`SAFE TO CLOSE TAB`**), your dashboard displays all findings and opt-out/removal links.
+3. Select **`stalker-search-companion-v9.zip`** directly *(or unzip it and select `manifest.json`)*.
+4. **Required if you want to use `Incognito Search (Private)` mode:**
+   - Open a tab to **`about:addons`** → click **Stalker Search Companion** → scroll down to **Run in Private Windows** and set it to **`Allow`**.
+   - *(Note: Firefox resets "Run in Private Windows" to "Don't Allow" every time you load a temporary add-on, and the Stalker Search app will show a live green indicator as soon as you switch it to **Allow**.)*
 
 ---
 
-## Option 2: Build From Source (Developers)
+### 3. Run Your Scan
+1. Double-click **`stalker-search-v9.exe`** — it opens in its own standalone pure-black desktop software window.
+2. Enter at least **one** of **Name**, **Email**, or **Phone Number** *(add comma-separated **Context** like college, city, or company to narrow common names)*.
+3. Choose a Search Mode and click **Search Footprint**:
+   - **Open Google Search (Faster)**: Uses your active Firefox/LibreWolf window to avoid CAPTCHAs, crawls up to 10 pages of Google results per query, automatically deletes the searched query URLs from your browser history, and **auto-closes the tabs** once synced.
+   - **Incognito Search (Private)**: Launches Google searches in a Private window with zero saved history. **If Google prompts "Verify you are human" (CAPTCHA) inside the Private tab, complete the human verification directly in that tab** (keep the tab open while verifying)—once verified, it will scan all pages and **auto-close the tabs** automatically.
+   - **Background APIs Only**: Silently queries 18 public datasets (GitHub, Reddit, News RSS, arXiv, OpenAlex, ORCID, Google Calendar `.ics`, Gravatar, OpenPGP, etc.) without opening any browser tabs.
+4. Keep the opened Google tabs open while the on-page badge says **`DO NOT CLOSE TAB`**. As soon as syncing finishes, the badge turns green (**`CLOSE TAB NOW ✕`**) and the tabs close themselves automatically.
 
-- **Prerequisites**: [Rust (`1.75+`)](https://rustup.rs/) + a Windows C linker (**MinGW-w64** `stable-x86_64-pc-windows-gnu` *or* Visual Studio C++ Build Tools; `xcode-select --install` on macOS; `build-essential pkg-config libssl-dev` on Linux). The extension needs zero build tools.
+---
+
+## Build From Source (Optional — For Developers)
+
+- **Prerequisites**: [Rust (`1.75+`)](https://rustup.rs/) + a C linker (MinGW-w64 `stable-x86_64-pc-windows-gnu` or Visual Studio C++ Build Tools on Windows).
 
 ```bash
 git clone https://github.com/Venky7514/Stalker-Search.git
@@ -60,19 +69,9 @@ cd Stalker-Search
 cargo run --release
 ```
 
-Then follow **Step 2** above using `companion_extension/manifest.json`.
-
-### CLI Usage
-```bash
-cargo run -- dorks --name "Jane Doe" --context "MIT, Boston"
-cargo run -- scan --name "Jane Doe" --context "MIT, Boston" --open-google --listen
-cargo run -- scan --email "jane@example.com" --phone "+1 555-019-2834"
-cargo run -- clean
-```
-
 ---
 
 ## Privacy & Credits
 
-- **100% Local**: Zero cookies, credentials, geolocation, telemetry, or saved search history on disk.
+- **100% Free & Zero Telemetry**: Everything runs locally on `127.0.0.1`. Zero cookies, credentials, geolocation, analytics, or external servers are ever contacted by Stalker Search.
 - **Inspiration**: Inspired in part by **[mxrch/GHunt](https://github.com/mxrch/GHunt)** for local browser companion architecture and public email/calendar pivoting techniques.

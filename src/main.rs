@@ -711,39 +711,74 @@ fn known_browsers() -> Vec<BrowserSpec> {
     ]
 }
 
-/// Detects whichever browser is currently running on the desktop (e.g. LibreWolf, Firefox, Brave, Chrome),
-/// or falls back to the first installed privacy/standard browser if none is currently open.
+/// Detects whichever Firefox-family browser is currently running or installed on the desktop
+/// (e.g. LibreWolf, Mozilla Firefox, Zen, Floorp, Waterfox), falling back to other browsers only if no Firefox-family browser exists.
 fn detect_active_or_installed_browser() -> Option<(&'static str, String, &'static str, bool)> {
     let specs = known_browsers();
 
-    // 1. Check `tasklist.exe /FO CSV /NH` to see which browser process is currently open
     #[cfg(target_os = "windows")]
-    if let Ok(output) = Command::new("tasklist.exe")
+    let tasklist_str = Command::new("tasklist.exe")
         .args(["/FO", "CSV", "/NH"])
         .output()
-    {
-        let tasklist_str = String::from_utf8_lossy(&output.stdout).to_lowercase();
-        for spec in &specs {
-            // Match exact quoted process name in CSV output (so "msedge.exe" never matches "msedgewebview2.exe")
-            let needle = format!("\"{}\"", spec.process_name);
-            if tasklist_str.contains(&needle) {
-                if let Some(exe_path) = spec
-                    .candidate_paths
-                    .iter()
-                    .find(|p| std::path::Path::new(p).exists())
-                {
-                    return Some((
-                        spec.display_name,
-                        exe_path.clone(),
-                        spec.private_flag,
-                        spec.is_firefox_family,
-                    ));
-                }
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase())
+        .unwrap_or_default();
+
+    // 1. Prefer an actively running Firefox-family browser (where Stalker Search Companion runs)
+    #[cfg(target_os = "windows")]
+    for spec in specs.iter().filter(|s| s.is_firefox_family) {
+        let needle = format!("\"{}\"", spec.process_name);
+        if tasklist_str.contains(&needle) {
+            if let Some(exe_path) = spec
+                .candidate_paths
+                .iter()
+                .find(|p| std::path::Path::new(p).exists())
+            {
+                return Some((
+                    spec.display_name,
+                    exe_path.clone(),
+                    spec.private_flag,
+                    spec.is_firefox_family,
+                ));
             }
         }
     }
 
-    // 2. If no browser window is currently open, pick the first installed browser (LibreWolf/Firefox first)
+    // 2. Next, prefer any installed Firefox-family browser (even if not open yet)
+    for spec in specs.iter().filter(|s| s.is_firefox_family) {
+        if let Some(exe_path) = spec
+            .candidate_paths
+            .iter()
+            .find(|p| std::path::Path::new(p).exists())
+        {
+            return Some((
+                spec.display_name,
+                exe_path.clone(),
+                spec.private_flag,
+                spec.is_firefox_family,
+            ));
+        }
+    }
+
+    // 3. Fallback: check other running or installed browsers
+    #[cfg(target_os = "windows")]
+    for spec in &specs {
+        let needle = format!("\"{}\"", spec.process_name);
+        if tasklist_str.contains(&needle) {
+            if let Some(exe_path) = spec
+                .candidate_paths
+                .iter()
+                .find(|p| std::path::Path::new(p).exists())
+            {
+                return Some((
+                    spec.display_name,
+                    exe_path.clone(),
+                    spec.private_flag,
+                    spec.is_firefox_family,
+                ));
+            }
+        }
+    }
+
     for spec in &specs {
         if let Some(exe_path) = spec
             .candidate_paths
@@ -760,6 +795,74 @@ fn detect_active_or_installed_browser() -> Option<(&'static str, String, &'stati
     }
 
     None
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" {
+    fn GetConsoleWindow() -> *mut std::ffi::c_void;
+    fn ShowWindow(hwnd: *mut std::ffi::c_void, n_cmd_show: i32) -> i32;
+    fn GetConsoleProcessList(lpdw_process_list: *mut u32, dw_process_count: u32) -> u32;
+}
+
+/// If `stalker-search.exe` was double-clicked from File Explorer (so it owns a dedicated console window
+/// rather than sharing an interactive PowerShell/CMD terminal), hide the console window so only the
+/// standalone desktop software window is shown.
+pub fn hide_dedicated_console_window() {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        let mut pids = [0u32; 2];
+        let count = GetConsoleProcessList(pids.as_mut_ptr(), 2);
+        if count <= 1 {
+            let hwnd = GetConsoleWindow();
+            if !hwnd.is_null() {
+                ShowWindow(hwnd, 0); // SW_HIDE = 0
+            }
+        }
+    }
+}
+
+/// Launches the Stalker Search interface as a standalone chromeless desktop application window
+/// (no address bar, no browser tabs, dedicated taskbar window).
+pub fn launch_desktop_app_window(url: &str) {
+    let program_files =
+        std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let program_files_x86 = std::env::var("ProgramFiles(x86)")
+        .unwrap_or_else(|_| r"C:\Program Files (x86)".to_string());
+    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
+
+    let app_hosts = [
+        format!(r"{}\Microsoft\Edge\Application\msedge.exe", program_files_x86),
+        format!(r"{}\Microsoft\Edge\Application\msedge.exe", program_files),
+        format!(
+            r"{}\BraveSoftware\Brave-Browser\Application\brave.exe",
+            program_files
+        ),
+        format!(r"{}\Google\Chrome\Application\chrome.exe", program_files),
+        format!(r"{}\Google\Chrome\Application\chrome.exe", local_app_data),
+    ];
+
+    if let Some(host_exe) = app_hosts.iter().find(|p| std::path::Path::new(p).exists()) {
+        let profile_dir = std::env::temp_dir().join("stalker_search_desktop_ui");
+        let _ = std::fs::create_dir_all(&profile_dir);
+
+        if Command::new(host_exe)
+            .args([
+                &format!("--app={}", url),
+                &format!("--user-data-dir={}", profile_dir.display()),
+                "--window-size=1140,860",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-features=Translate,msEdgeSidebarV2",
+            ])
+            .spawn()
+            .is_ok()
+        {
+            hide_dedicated_console_window();
+            return;
+        }
+    }
+
+    open_urls_in_active_browser(&[url.to_string()], false);
 }
 
 /// Opens URLs in whichever browser the user currently has open (either in its Private/Incognito window or normal window).
@@ -782,11 +885,13 @@ pub fn open_urls_in_active_browser(urls: &[String], private_mode: bool) {
             );
 
             if is_firefox_family {
-                // Firefox & LibreWolf require `-private-window <url>` per tab
+                // Firefox & LibreWolf require `-private-window <url>` per tab; wait for window creation on tab 0
                 for (i, u) in urls.iter().enumerate() {
                     let _ = Command::new(&exe_path).args([private_flag, u]).spawn();
                     if i == 0 {
-                        std::thread::sleep(Duration::from_millis(350));
+                        std::thread::sleep(Duration::from_millis(1100));
+                    } else {
+                        std::thread::sleep(Duration::from_millis(300));
                     }
                 }
             } else {

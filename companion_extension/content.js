@@ -7,6 +7,7 @@
 
 (function () {
   const MAX_GOOGLE_PAGES = 10;
+  const MAX_NAV_FALLBACK_PAGES = 5;
   const api = typeof browser !== "undefined" ? browser : chrome;
 
   let isScanning = false;
@@ -42,7 +43,6 @@
 
   function sendToBackground(msg) {
     return new Promise((resolve) => {
-      // Firefox (`browser.*`) uses Promise-based sendMessage(msg) with 1 argument ONLY!
       if (typeof browser !== "undefined" && browser.runtime && typeof browser.runtime.sendMessage === "function") {
         browser.runtime
           .sendMessage(msg)
@@ -59,7 +59,6 @@
         return;
       }
 
-      // Chromium (`chrome.*`) uses callback-based sendMessage(msg, callback)
       if (typeof chrome !== "undefined" && chrome.runtime && typeof chrome.runtime.sendMessage === "function") {
         try {
           chrome.runtime.sendMessage(msg, (reply) => {
@@ -100,6 +99,16 @@
     if (href.includes("/sorry/")) return true;
     return Boolean(
       doc.querySelector("#captcha-form, form#captcha-form, iframe[src*='recaptcha']")
+    );
+  }
+
+  function isExplicitNoResultsPage(doc) {
+    const main = doc.querySelector("#search, #rso, #topstuff, #main");
+    if (!main) return false;
+    const txt = (main.textContent || "").toLowerCase();
+    return (
+      txt.includes("did not match any documents") ||
+      txt.includes("no results found for")
     );
   }
 
@@ -156,10 +165,19 @@
       brandWrap.appendChild(spinEl);
       brandWrap.appendChild(titleEl);
 
-      const pillEl = document.createElement("span");
+      const pillEl = document.createElement("button");
+      pillEl.type = "button";
       pillEl.id = "stalker-hud-tag";
       pillEl.style.cssText =
-        "font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:3px 9px;border-radius:999px;border:1px solid #404040;background:#0a0a0a;color:#fafafa;";
+        "font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:4px 10px;border-radius:999px;border:1px solid #404040;background:#0a0a0a;color:#fafafa;cursor:pointer;";
+      pillEl.addEventListener("click", () => {
+        if (!isScanning) {
+          sendToBackground({ action: "close_tab" });
+          try {
+            window.close();
+          } catch (_) {}
+        }
+      });
 
       topRow.appendChild(brandWrap);
       topRow.appendChild(pillEl);
@@ -232,6 +250,24 @@
     return hud;
   }
 
+  function queryAllDeep(root, selector) {
+    const out = [];
+    const stack = [root];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node || typeof node.querySelectorAll !== "function") continue;
+      try {
+        const matches = node.querySelectorAll(selector);
+        for (const m of matches) out.push(m);
+        const allEls = node.querySelectorAll("*");
+        for (const el of allEls) {
+          if (el.shadowRoot) stack.push(el.shadowRoot);
+        }
+      } catch (_) {}
+    }
+    return out;
+  }
+
   function unwrapGoogleUrl(rawHref) {
     if (!rawHref) return "";
     let url = rawHref.trim();
@@ -242,12 +278,11 @@
         parsed.hostname.toLowerCase().includes("google.") &&
         (parsed.pathname === "/url" || parsed.pathname === "/interstitial")
       ) {
-        const target =
-          parsed.searchParams.get("q") ||
-          parsed.searchParams.get("url") ||
-          parsed.searchParams.get("u");
-        if (target && target.startsWith("http")) {
-          return target;
+        for (const key of ["url", "q", "u", "dest", "target"]) {
+          const val = parsed.searchParams.get(key);
+          if (val && (val.startsWith("http://") || val.startsWith("https://"))) {
+            return val;
+          }
         }
       }
       return parsed.toString();
@@ -260,6 +295,14 @@
     try {
       const u = new URL(url);
       const host = u.hostname.toLowerCase();
+      // Google's signed-out `/goto?url=CAES...` endpoint is an outbound search result link!
+      if (
+        (host === "google.com" || host.endsWith(".google.com") || host.includes(".google.")) &&
+        u.pathname === "/goto" &&
+        u.searchParams.has("url")
+      ) {
+        return false;
+      }
       return (
         host === "google.com" ||
         host.endsWith(".google.com") ||
@@ -267,39 +310,93 @@
         host.endsWith("gstatic.com") ||
         host.endsWith("googleusercontent.com") ||
         host.endsWith("googleapis.com") ||
-        host.endsWith("youtube.com/redirect")
+        host === "accounts.youtube.com"
       );
     } catch (_) {
       return true;
     }
   }
 
-  function extractSnippetForElement(el, title) {
-    const card =
+  function isChromeExcluded(el) {
+    if (!el || typeof el.closest !== "function") return false;
+    return Boolean(
+      el.closest("#gb, #fbar, #swml, #top_nav, #hdtb, footer, aside#stalker-companion-banner")
+    );
+  }
+
+  function findResultCard(el) {
+    const knownCard =
       el.closest("div[data-snc]") ||
       el.closest("div.MjjYud") ||
+      el.closest("div.Ww4FFb") ||
+      el.closest("div.srKDX") ||
       el.closest("div.g") ||
       el.closest("div.N54PNb") ||
       el.closest("div.tF2Cxc");
-    if (!card) return "";
-    return (card.innerText || card.textContent || "")
+    if (knownCard) return knownCard;
+
+    // Fallback: walk up above any <a> wrapper until we reach the outer container for this single result (1 <h3>)
+    let cur = el.closest("a") || el;
+    let best = cur.parentElement;
+    while (cur && cur.parentElement && cur.parentElement !== document.body) {
+      const parent = cur.parentElement;
+      if (
+        parent.id === "rso" ||
+        parent.id === "search" ||
+        parent.id === "main" ||
+        parent.id === "center_col"
+      ) {
+        break;
+      }
+      const h3Count = parent.querySelectorAll("h3").length;
+      if (h3Count > 1) break;
+      best = parent;
+      cur = parent;
+    }
+    return best || el.parentElement;
+  }
+
+  function extractSnippetForElement(el, title) {
+    const card = findResultCard(el);
+    if (!card || card === document.body) return "";
+
+    let citePrefix = "";
+    try {
+      const citeEl = card.querySelector("cite");
+      const siteEl = card.querySelector(".VuuXrf");
+      const rawCite = citeEl ? (citeEl.innerText || citeEl.textContent || "").trim() : "";
+      const rawSite = siteEl ? (siteEl.innerText || siteEl.textContent || "").trim() : "";
+
+      const parts = [];
+      if (rawCite) {
+        const firstPart = rawCite.split(/\s*[›·]\s*/)[0].trim();
+        if (firstPart) parts.push(firstPart);
+      }
+      if (rawSite && !parts.includes(rawSite)) {
+        parts.push(rawSite);
+      }
+      if (parts.length > 0) {
+        citePrefix = `[Source: ${parts.join(" | ")}] `;
+      }
+    } catch (_) {}
+
+    const bodySnippet = (card.innerText || card.textContent || "")
       .replace(title, "")
       .replace(/\s+/g, " ")
       .trim()
-      .slice(0, 450);
+      .slice(0, 420);
+
+    return `${citePrefix}${bodySnippet}`.trim();
   }
 
   function extractResultsFromDoc(doc, seenUrls) {
     const pageResults = [];
     const root = doc.querySelector("#rso, #search, #main") || doc;
 
-    // Pass 1: Match headings across all Google SERP DOM layouts
-    // (<a><h3>...</h3></a>, <h3><a>...</a></h3>, or sibling <a> + <h3>)
-    const headings = root.querySelectorAll("h3, [role='heading']");
+    // Pass 1: Match headings across all Google SERP DOM layouts (piercing open Shadow DOM too)
+    const headings = queryAllDeep(root, "h3, [role='heading']");
     for (const heading of headings) {
-      if (heading.closest("header, footer, nav, #fbar, #swml, #gb, [role='navigation']")) {
-        continue;
-      }
+      if (isChromeExcluded(heading)) continue;
 
       const anchor =
         heading.closest("a[href]") ||
@@ -307,7 +404,12 @@
         (heading.parentElement && heading.parentElement.querySelector("a[href]"));
       if (!anchor) continue;
 
-      const rawHref = anchor.getAttribute("href") || anchor.href || "";
+      const rawHref =
+        anchor.getAttribute("href") ||
+        anchor.href ||
+        anchor.getAttribute("data-href") ||
+        anchor.getAttribute("data-url") ||
+        "";
       const url = unwrapGoogleUrl(rawHref);
       if (!url.startsWith("http") || isInternalGoogleUrl(url)) continue;
       if (seenUrls.has(url)) continue;
@@ -320,28 +422,58 @@
       pageResults.push({ title, url, snippet });
     }
 
-    // Pass 2: Fallback across full document (handles AI Mode citation sidebars & alternative SERP layouts)
+    // Pass 2: Full-document fallback (handles AI Mode citation cards & empty aria-label overlay <a> tags)
     if (pageResults.length === 0) {
-      const anchors = doc.querySelectorAll("a[href]");
+      const anchors = queryAllDeep(doc, "a[href], a[data-href], a[data-url]");
       for (const anchor of anchors) {
-        if (anchor.closest("header, footer, nav, #fbar, #swml, #gb, [role='navigation'], aside#stalker-companion-banner")) {
-          continue;
-        }
-        const rawHref = anchor.getAttribute("href") || anchor.href || "";
+        if (isChromeExcluded(anchor)) continue;
+        const rawHref =
+          anchor.getAttribute("href") ||
+          anchor.href ||
+          anchor.getAttribute("data-href") ||
+          anchor.getAttribute("data-url") ||
+          "";
         const url = unwrapGoogleUrl(rawHref);
         if (!url.startsWith("http") || isInternalGoogleUrl(url)) continue;
         if (seenUrls.has(url)) continue;
 
-        const title = (anchor.innerText || anchor.textContent || "").replace(/\s+/g, " ").trim();
-        if (title.length < 4) continue;
+        const card =
+          anchor.closest("div[data-snc], div.MjjYud, div.g, div.N54PNb, li") ||
+          anchor.parentElement;
+        const headingText = card
+          ? ((card.querySelector("h3, h2, [role='heading']") || {}).innerText || "").trim()
+          : "";
+        const rawTitle =
+          (anchor.getAttribute("aria-label") || "").trim() ||
+          (anchor.getAttribute("title") || "").trim() ||
+          headingText ||
+          (anchor.innerText || anchor.textContent || "").replace(/\s+/g, " ").trim() ||
+          url;
 
         seenUrls.add(url);
-        const snippet = extractSnippetForElement(anchor, title);
-        pageResults.push({ title: title.slice(0, 180), url, snippet });
+        const snippet = extractSnippetForElement(anchor, rawTitle);
+        pageResults.push({ title: rawTitle.slice(0, 180), url, snippet });
       }
     }
 
     return pageResults;
+  }
+
+  function buildDiagnostics(doc) {
+    try {
+      const allAnchors = queryAllDeep(doc, "a[href]");
+      let extCount = 0;
+      for (const a of allAnchors) {
+        const u = unwrapGoogleUrl(a.getAttribute("href") || a.href || "");
+        if (u.startsWith("http") && !isInternalGoogleUrl(u)) extCount++;
+      }
+      const h3Count = queryAllDeep(doc, "h3").length;
+      const udm = new URLSearchParams(window.location.search).get("udm") || "none";
+      const path = window.location.pathname;
+      return `a=${allAnchors.length} ext=${extCount} h3=${h3Count} udm=${udm} path=${path}`;
+    } catch (_) {
+      return "diag_err";
+    }
   }
 
   function findNextPageUrl(doc, currentPageNum, lastPageHitCount) {
@@ -354,7 +486,9 @@
       const href = nextBtn.getAttribute("href");
       if (href) {
         try {
-          return new URL(href, window.location.origin).toString();
+          const u = new URL(href, window.location.origin);
+          if (!u.searchParams.has("udm")) u.searchParams.set("udm", "14");
+          return u.toString();
         } catch (_) {}
       }
     }
@@ -369,13 +503,12 @@
       try {
         const u = new URL(href, window.location.origin);
         if (u.searchParams.get("start") === expectedStart) {
+          if (!u.searchParams.has("udm")) u.searchParams.set("udm", "14");
           return u.toString();
         }
       } catch (_) {}
     }
 
-    // Fallback for continuous-scroll / hidden-pagination Google layouts:
-    // If the current page had a healthy batch of results (>= 6), construct the next &start= URL directly.
     if (lastPageHitCount >= 6) {
       try {
         const nextU = new URL(window.location.href);
@@ -388,55 +521,77 @@
     return null;
   }
 
-  async function crawlAllGooglePages() {
+  async function waitForPageResults(seenUrls) {
+    let hits = extractResultsFromDoc(document, seenUrls);
+    if (hits.length > 0 || isExplicitNoResultsPage(document)) {
+      return hits;
+    }
+
+    createOrUpdateHud({
+      tagText: "DO NOT CLOSE TAB",
+      headline: "Waiting for Google Results to Render...",
+      subtext: "Waiting for Google page hydration before extracting results. Keep this tab open.",
+      mode: "scanning",
+    });
+
+    // Poll up to 4.5 seconds (at fast 250ms intervals) for lazy-hydrated / streaming Google SERPs
+    for (let attempt = 0; attempt < 18; attempt++) {
+      await new Promise((r) => setTimeout(r, 250));
+      if (isCaptchaOrVerifyPage(document) || isExplicitNoResultsPage(document)) {
+        break;
+      }
+      hits = extractResultsFromDoc(document, seenUrls);
+      if (hits.length > 0) {
+        return hits;
+      }
+    }
+
+    return hits;
+  }
+
+  async function crawlFromCurrentTab(startPageNum) {
     const seenUrls = new Set();
     const visitedUrls = [window.location.href];
     const allResults = [];
     let currentDoc = document;
-    let pageNum = 1;
+    let pageNum = startPageNum;
 
     setScanningGuard(true);
 
-    let page1Hits = extractResultsFromDoc(currentDoc, seenUrls);
-    // If Google is still hydrating DOM right after document_idle, wait briefly and retry once
-    if (page1Hits.length === 0) {
-      await new Promise((r) => setTimeout(r, 900));
-      page1Hits = extractResultsFromDoc(currentDoc, seenUrls);
-    }
+    let firstHits = await waitForPageResults(seenUrls);
 
-    // If Google forced AI Mode / non-Web layout and yielded 0 results on Page 1,
-    // explicitly fetch the classic Web tab (`&udm=14`) in the background using same-origin cookies!
-    if (page1Hits.length === 0) {
+    // If page still has 0 results and isn't explicitly udm=14 yet, try navigating once to classic Web tab
+    if (firstHits.length === 0 && !isExplicitNoResultsPage(document)) {
       try {
-        const udmUrl = new URL(window.location.href);
-        if (udmUrl.searchParams.get("udm") !== "14") {
-          udmUrl.searchParams.set("udm", "14");
-          const resp = await fetch(udmUrl.toString(), { credentials: "same-origin" });
-          if (resp.ok) {
-            const html = await resp.text();
-            const parser = new DOMParser();
-            const webDoc = parser.parseFromString(html, "text/html");
-            if (!isCaptchaOrVerifyPage(webDoc)) {
-              currentDoc = webDoc;
-              page1Hits = extractResultsFromDoc(currentDoc, seenUrls);
-            }
-          }
+        const u = new URL(window.location.href);
+        if (u.searchParams.get("udm") !== "14") {
+          u.searchParams.set("udm", "14");
+          setScanningGuard(false);
+          window.location.replace(u.toString());
+          return { navigated: true };
         }
       } catch (_) {}
     }
 
-    allResults.push(...page1Hits);
+    allResults.push(...firstHits);
 
-    let nextUrl = findNextPageUrl(currentDoc, pageNum, page1Hits.length);
+    let nextUrl = findNextPageUrl(currentDoc, pageNum, firstHits.length);
 
     if (allResults.length === 0 && !nextUrl) {
-      return { allResults, pagesScanned: 1, visitedUrls, interruptedByCaptcha: false };
+      return {
+        navigated: false,
+        allResults,
+        pagesScanned: 1,
+        visitedUrls,
+        interruptedByCaptcha: false,
+        needsRealNavTo: null,
+      };
     }
 
     createOrUpdateHud({
       tagText: "DO NOT CLOSE TAB",
       headline: nextUrl
-        ? `Loading Page 2 of Google Results... (${allResults.length} results on Page 1)`
+        ? `Loading Page ${pageNum + 1} of Google Results... (${allResults.length} on Page ${pageNum})`
         : `Processing ${allResults.length} Google Results...`,
       subtext:
         "Keep this tab open until syncing finishes. Searched URLs will be cleared from history automatically.",
@@ -444,47 +599,60 @@
     });
     await postStatus(
       "crawling",
-      `Loading Google Page 1 (${allResults.length} results)`,
-      1,
+      `Scanning Google Page ${pageNum} (${allResults.length} results)`,
+      pageNum,
       allResults.length
     );
 
     let interruptedByCaptcha = false;
+    let needsRealNavTo = null;
+    let pagesScannedHere = 1;
 
     while (nextUrl && pageNum < MAX_GOOGLE_PAGES) {
-      pageNum++;
-      visitedUrls.push(nextUrl);
+      const candidateNextUrl = nextUrl;
+      const candidatePage = pageNum + 1;
 
       createOrUpdateHud({
         tagText: "DO NOT CLOSE TAB",
-        headline: `Loading Page ${pageNum} of Results... (${allResults.length} collected)`,
-        subtext: "Crawling additional Google pages in the background. Do not close this tab yet.",
+        headline: `Loading Page ${candidatePage} of Results... (${allResults.length} collected)`,
+        subtext: "Crawling additional Google pages. Do not close this tab yet.",
         mode: "scanning",
       });
       await postStatus(
         "crawling",
-        `Scanning Google Page ${pageNum} (${allResults.length} results so far)`,
-        pageNum,
+        `Scanning Google Page ${candidatePage} (${allResults.length} results so far)`,
+        candidatePage,
         allResults.length
       );
 
-      await new Promise((r) => setTimeout(r, 900));
+      await new Promise((r) => setTimeout(r, 550));
 
       try {
-        const resp = await fetch(nextUrl, { credentials: "same-origin" });
+        const resp = await fetch(candidateNextUrl, { credentials: "same-origin" });
         if (!resp.ok) {
           if (resp.status === 429) interruptedByCaptcha = true;
           break;
         }
         const html = await resp.text();
         const parser = new DOMParser();
-        currentDoc = parser.parseFromString(html, "text/html");
-        if (isCaptchaOrVerifyPage(currentDoc)) {
+        const nextDoc = parser.parseFromString(html, "text/html");
+        if (isCaptchaOrVerifyPage(nextDoc)) {
           interruptedByCaptcha = true;
           break;
         }
-        const hits = extractResultsFromDoc(currentDoc, seenUrls);
-        if (hits.length === 0) break;
+        const hits = extractResultsFromDoc(nextDoc, seenUrls);
+        if (hits.length === 0) {
+          // If Google served a JS-required empty shell to background fetch() on fresh Firefox,
+          // fall back to real browser-tab navigation so Firefox executes Google's JS for Page 2..5!
+          if (!isExplicitNoResultsPage(nextDoc) && candidatePage <= MAX_NAV_FALLBACK_PAGES) {
+            needsRealNavTo = candidateNextUrl;
+          }
+          break;
+        }
+        pageNum = candidatePage;
+        pagesScannedHere++;
+        visitedUrls.push(candidateNextUrl);
+        currentDoc = nextDoc;
         allResults.push(...hits);
         nextUrl = findNextPageUrl(currentDoc, pageNum, hits.length);
       } catch (_) {
@@ -492,7 +660,28 @@
       }
     }
 
-    return { allResults, pagesScanned: pageNum, visitedUrls, interruptedByCaptcha };
+    return {
+      navigated: false,
+      allResults,
+      pagesScanned: pagesScannedHere,
+      visitedUrls,
+      interruptedByCaptcha,
+      needsRealNavTo,
+    };
+  }
+
+  // When loaded on the local Stalker Search Web UI (127.0.0.1:7878), sync extension & Private Window status
+  if (window.location.hostname === "127.0.0.1") {
+    function syncDashboardStatus() {
+      sendToBackground({ action: "check_incognito_access" }).then((reply) => {
+        document.documentElement.dataset.stalkerCompanion = "active";
+        document.documentElement.dataset.stalkerIncognitoAllowed =
+          reply && reply.incognitoAllowed ? "true" : "false";
+      });
+    }
+    syncDashboardStatus();
+    setInterval(syncDashboardStatus, 1200);
+    return;
   }
 
   sendToBackground({ action: "bridge_ping" }).then(async (pingReply) => {
@@ -502,40 +691,64 @@
 
     const params = new URLSearchParams(window.location.search);
     const query = params.get("q") || "";
+    const startOffset = parseInt(params.get("start") || "0", 10) || 0;
+    const startPageNum = Math.floor(startOffset / 10) + 1;
 
     if (isCaptchaOrVerifyPage(document)) {
-      setScanningGuard(true);
+      // Do NOT attach beforeunload on /sorry/ so Google can freely redirect back to /search once verified
+      setScanningGuard(false);
       createOrUpdateHud({
         tagText: "HUMAN VERIFICATION NEEDED",
         headline: "Please Verify You Are Human in This Tab",
         subtext:
-          "Google blocked automated pagination in this window. Complete the verification check here (do NOT close this tab), or switch to 'Open Google Search (Faster)' mode.",
+          "Google requested human verification in this window. Complete the check here (do NOT close this tab), or switch to 'Open Google Search (Faster)' mode.",
         mode: "warn",
       });
-      await postStatus(
-        "human_verify_needed",
-        "Google requires human verification in the opened browser tab. Complete it there to continue.",
-        1,
-        0
-      );
+      const notifyVerify = () =>
+        postStatus(
+          "human_verify_needed",
+          "Google requires human verification in the opened browser tab. Complete it there to continue.",
+          startPageNum,
+          0
+        );
+      await notifyVerify();
+      setInterval(notifyVerify, 5000);
       return;
     }
 
-    const { allResults, pagesScanned, visitedUrls, interruptedByCaptcha } =
-      await crawlAllGooglePages();
+    const res = await crawlFromCurrentTab(startPageNum);
+    if (res.navigated) {
+      return;
+    }
+
+    const { allResults, pagesScanned, visitedUrls, interruptedByCaptcha, needsRealNavTo } = res;
 
     if (interruptedByCaptcha) {
       await postStatus(
         "human_verify_needed",
         "Google paused pagination for verification after collecting initial results.",
-        pagesScanned,
+        startPageNum + pagesScanned - 1,
         allResults.length
       );
     }
 
+    // If background fetch() was JS-gated by Google, stream current page (`done: false`)
+    // and navigate this tab directly to Page N+1!
+    if (needsRealNavTo) {
+      await sendToBackground({
+        action: "bridge_feed",
+        payload: { query, results: allResults, done: false },
+      });
+      scrubSearchedUrls(visitedUrls, query);
+      setScanningGuard(false);
+      window.location.href = needsRealNavTo;
+      return;
+    }
+
+    const diag = allResults.length === 0 ? buildDiagnostics(document) : "";
     const feedReply = await sendToBackground({
       action: "bridge_feed",
-      payload: { query, results: allResults },
+      payload: { query, results: allResults, done: true, diag },
     });
 
     setScanningGuard(false);
@@ -544,24 +757,33 @@
     if (feedReply && feedReply.ok) {
       const isPrivate = api && api.extension && api.extension.inIncognitoContext;
       const historyNote = isPrivate
-        ? "Private window used (zero history saved). Safe to close this tab now."
-        : "Search URL removed from browser history. Safe to close this tab now.";
+        ? "Private window used (zero history saved). Auto-closing this tab now..."
+        : "Search URL removed from browser history. Auto-closing this tab now...";
+
+      const totalPages = startPageNum + pagesScanned - 1;
 
       if (allResults.length > 0) {
         createOrUpdateHud({
-          tagText: "SAFE TO CLOSE TAB",
-          headline: `Done! Synced ${allResults.length} Results Across ${pagesScanned} Page${pagesScanned > 1 ? "s" : ""}`,
+          tagText: "CLOSE TAB NOW ✕",
+          headline: `Done! Synced ${allResults.length} Results (Up to Page ${totalPages})`,
           subtext: historyNote,
           mode: "done",
         });
       } else {
         createOrUpdateHud({
-          tagText: "SAFE TO CLOSE TAB",
+          tagText: "CLOSE TAB NOW ✕",
           headline: "Scan Complete · 0 Results Found for This Query",
-          subtext: historyNote,
+          subtext: `${historyNote} [${diag}]`,
           mode: "idle",
         });
       }
+
+      setTimeout(() => {
+        sendToBackground({ action: "close_tab" });
+        try {
+          window.close();
+        } catch (_) {}
+      }, 650);
     }
   });
 })();

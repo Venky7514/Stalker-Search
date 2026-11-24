@@ -6,17 +6,35 @@ use crate::engines::build_engine;
 use crate::engines::free::{run_direct_osint_sweep, run_second_stage_email_pivot};
 use crate::listener::{
     accept_companion_results, bind_companion_listener, get_scan_live_state, mark_scan_finished,
-    read_full_http_request, set_scan_live_state, DEFAULT_COMPANION_PORT,
+    read_full_http_request, set_scan_live_state, update_companion_heartbeat,
+    DEFAULT_COMPANION_PORT,
 };
 use crate::models::{AnalyzedFinding, DorkQuery, RawSearchResult, RiskLevel};
-use crate::open_urls_in_active_browser;
+use crate::{launch_desktop_app_window, open_urls_in_active_browser};
 use anyhow::{Context, Result};
 use console::style;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
 pub const DEFAULT_UI_PORT: u16 = 7878;
+
+static LAST_UI_POLL_MS: AtomicU64 = AtomicU64::new(0);
+
+fn now_epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[derive(Debug, Deserialize)]
+struct CompanionHeartbeatPayload {
+    #[serde(default)]
+    incognito_allowed: bool,
+}
 
 #[derive(Debug, Deserialize)]
 struct UiScanRequest {
@@ -101,7 +119,7 @@ pub async fn run_ui_server(port: u16, auto_open: bool) -> Result<()> {
     );
 
     if auto_open {
-        open_urls_in_active_browser(&[url.clone()], false);
+        launch_desktop_app_window(&url);
     }
 
     loop {
@@ -120,10 +138,12 @@ pub async fn run_ui_server(port: u16, auto_open: bool) -> Result<()> {
                             Access-Control-Allow-Origin: *\r\n\
                             Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
                             Access-Control-Allow-Headers: Content-Type\r\n\
+                            Access-Control-Allow-Private-Network: true\r\n\
                             Content-Length: 0\r\n\r\n";
                 let _ = socket.write_all(resp.as_bytes()).await;
             } else if first_line.starts_with("GET / ") || first_line.starts_with("GET /index.html")
             {
+                LAST_UI_POLL_MS.store(now_epoch_ms(), Ordering::Relaxed);
                 let body = INDEX_HTML.as_bytes();
                 let headers = format!(
                     "HTTP/1.1 200 OK\r\n\
@@ -137,17 +157,48 @@ pub async fn run_ui_server(port: u16, auto_open: bool) -> Result<()> {
                 let _ = socket.write_all(headers.as_bytes()).await;
                 let _ = socket.write_all(body).await;
             } else if first_line.starts_with("GET /api/status") {
+                LAST_UI_POLL_MS.store(now_epoch_ms(), Ordering::Relaxed);
                 let st = get_scan_live_state();
                 let json = serde_json::to_string(&st).unwrap_or_else(|_| "{}".into());
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\n\
                      Content-Type: application/json\r\n\
+                     Access-Control-Allow-Origin: *\r\n\
                      Cache-Control: no-store\r\n\
                      Content-Length: {}\r\n\r\n{}",
                     json.len(),
                     json
                 );
                 let _ = socket.write_all(resp.as_bytes()).await;
+            } else if first_line.starts_with("POST /api/companion_heartbeat") {
+                let body_str = raw_req
+                    .find("\r\n\r\n")
+                    .map(|i| &raw_req[i + 4..])
+                    .unwrap_or("");
+                if let Ok(hb) = serde_json::from_str::<CompanionHeartbeatPayload>(body_str) {
+                    update_companion_heartbeat(hb.incognito_allowed);
+                }
+                let resp = "HTTP/1.1 200 OK\r\n\
+                            Access-Control-Allow-Origin: *\r\n\
+                            Access-Control-Allow-Private-Network: true\r\n\
+                            Content-Length: 2\r\n\r\nok";
+                let _ = socket.write_all(resp.as_bytes()).await;
+            } else if first_line.starts_with("POST /api/quit") {
+                let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+                let _ = socket.write_all(resp.as_bytes()).await;
+                std::process::exit(0);
+            } else if first_line.starts_with("POST /api/ui_closed") {
+                let closed_at = now_epoch_ms();
+                let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+                let _ = socket.write_all(resp.as_bytes()).await;
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    let latest_poll = LAST_UI_POLL_MS.load(Ordering::Relaxed);
+                    let st = get_scan_live_state();
+                    if latest_poll <= closed_at && !st.active {
+                        std::process::exit(0);
+                    }
+                });
             } else if first_line.starts_with("POST /api/clean") {
                 let removed = QueryCache::purge_disk();
                 let json = serde_json::json!({
@@ -306,32 +357,44 @@ async fn execute_ui_scan(req: UiScanRequest) -> Result<UiScanResponse> {
 
     let mut all_raw_results: Vec<RawSearchResult> = Vec::new();
 
-    // 1. Run 18 Keyless Public APIs concurrently with any browser companion crawling
-    let mut osint_hits = run_direct_osint_sweep(&target).await;
-    all_raw_results.append(&mut osint_hits);
-
-    // 2. Run web dorks across the configured search engine
-    let mut skip_remaining = false;
-    for dork in &dorks {
-        if skip_remaining {
-            break;
-        }
-        match search_engine.search(dork, effective_max).await {
-            Ok(mut hits) => all_raw_results.append(&mut hits),
-            Err(err) => {
-                if err.to_string().contains("HUMAN_VERIFICATION_REQUIRED") {
-                    skip_remaining = true;
+    // Run 18 Keyless Public APIs, background search dorks, and Browser Companion sync concurrently for maximum speed
+    let bg_max = if open_google || incognito {
+        10
+    } else {
+        effective_max
+    };
+    let osint_fut = run_direct_osint_sweep(&target);
+    let dork_fut = async {
+        let mut hits_out = Vec::new();
+        let mut skip_remaining = false;
+        for dork in &dorks {
+            if skip_remaining {
+                break;
+            }
+            match search_engine.search(dork, bg_max).await {
+                Ok(mut hits) => hits_out.append(&mut hits),
+                Err(err) => {
+                    if err.to_string().contains("HUMAN_VERIFICATION_REQUIRED") {
+                        skip_remaining = true;
+                    }
                 }
             }
         }
-    }
-
-    // 3. Collect multi-page Google Search results from the Browser Companion Extension if opened
-    if let Some(handle) = companion_task {
-        if let Ok(mut companion_hits) = handle.await {
-            all_raw_results.append(&mut companion_hits);
+        hits_out
+    };
+    let companion_fut = async {
+        if let Some(handle) = companion_task {
+            handle.await.unwrap_or_default()
+        } else {
+            Vec::new()
         }
-    }
+    };
+
+    let (mut osint_hits, mut dork_hits, mut companion_hits) =
+        tokio::join!(osint_fut, dork_fut, companion_fut);
+    all_raw_results.append(&mut osint_hits);
+    all_raw_results.append(&mut dork_hits);
+    all_raw_results.append(&mut companion_hits);
 
     // 4. Stage-2 Email Pivot (Public Google Calendar .ics, Gravatar, OpenPGP)
     let mut stage2_hits = run_second_stage_email_pivot(&all_raw_results, &target).await;
@@ -1054,9 +1117,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <span>Open-Source Digital Footprint Scanner</span>
       </div>
       <div class="header-actions">
-        <span class="privacy-pill">127.0.0.1 Local &bull; Zero Cookies or Logs</span>
+        <span id="companion-pill" class="privacy-pill">127.0.0.1 Local &bull; Zero Cookies or Logs</span>
         <button type="button" id="purge-btn" class="btn btn-ghost">
           Clear Cache
+        </button>
+        <button type="button" id="quit-btn" class="btn btn-ghost">
+          Exit App
         </button>
       </div>
     </div>
@@ -1338,31 +1404,65 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       let currentReportData = null;
       let activeRiskFilter = 'ALL';
       let isScanningNow = false;
+      let lastIncognitoState = '';
 
       function updatePrecautionText() {
         const mode = document.querySelector('input[name="browser_mode"]:checked')?.value || 'open_google';
+        const incAllowed = document.documentElement.dataset.stalkerIncognitoAllowed || '';
+        lastIncognitoState = `${mode}:${incAllowed}`;
+
         if (mode === 'open_google') {
           precautionNote.hidden = false;
+          precautionNote.style.borderColor = 'var(--border)';
+          precautionNote.style.color = '#a3a3a3';
           precautionNote.innerHTML = '';
           const b = document.createElement('strong');
           b.textContent = 'Precaution: ';
           precautionNote.appendChild(b);
           precautionNote.appendChild(
             document.createTextNode(
-              'Do NOT close the opened Google Search tabs until scanning finishes. Once synced, searched query URLs are automatically removed from browser history.'
+              'Do NOT close the opened Google Search tabs while scanning. Each tab will automatically remove its search URL from browser history and auto-close itself once synced.'
             )
           );
         } else if (mode === 'incognito') {
           precautionNote.hidden = false;
           precautionNote.innerHTML = '';
-          const b = document.createElement('strong');
-          b.textContent = 'Incognito Precaution: ';
-          precautionNote.appendChild(b);
-          precautionNote.appendChild(
-            document.createTextNode(
-              'Keep the Private / Incognito tabs open until scanning completes. If Google shows "Verify you are human", complete it in the Incognito tab. (Also make sure "Run in Private Windows: Allow" is enabled for Stalker Search Companion in about:addons.)'
-            )
-          );
+          if (incAllowed === 'false') {
+            precautionNote.style.borderColor = '#eab308';
+            precautionNote.style.color = '#fde047';
+            const b = document.createElement('strong');
+            b.style.color = '#facc15';
+            b.textContent = 'Action Required in Firefox for Incognito Mode: ';
+            precautionNote.appendChild(b);
+            precautionNote.appendChild(
+              document.createTextNode(
+                'Firefox disables extensions in Private Windows by default (and resets it whenever you load a temporary add-on). Open a tab to about:addons → click Stalker Search Companion → set "Run in Private Windows" to "Allow". This message will turn green automatically once enabled.'
+              )
+            );
+          } else if (incAllowed === 'true') {
+            precautionNote.style.borderColor = '#22c55e';
+            precautionNote.style.color = '#bbf7d0';
+            const b = document.createElement('strong');
+            b.style.color = '#4ade80';
+            b.textContent = '✓ Private Window Permission Enabled: ';
+            precautionNote.appendChild(b);
+            precautionNote.appendChild(
+              document.createTextNode(
+                'Keep the Private / Incognito tabs open while scanning (complete any "Verify you are human" check directly inside the Private tab). Tabs will auto-close automatically once synced.'
+              )
+            );
+          } else {
+            precautionNote.style.borderColor = 'var(--border)';
+            precautionNote.style.color = '#a3a3a3';
+            const b = document.createElement('strong');
+            b.textContent = 'Incognito Precaution: ';
+            precautionNote.appendChild(b);
+            precautionNote.appendChild(
+              document.createTextNode(
+                'Make sure "Run in Private Windows: Allow" is enabled for Stalker Search Companion in about:addons. Tabs will auto-close automatically once synced.'
+              )
+            );
+          }
         } else {
           precautionNote.hidden = true;
         }
@@ -1372,6 +1472,53 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         r.addEventListener('change', updatePrecautionText);
       });
       updatePrecautionText();
+
+      async function pollBackendCompanionState() {
+        try {
+          const resp = await fetch('/api/status');
+          if (!resp.ok) return;
+          const st = await resp.json();
+          if (st.companion_connected) {
+            document.documentElement.dataset.stalkerCompanion = 'active';
+            if (typeof st.incognito_allowed === 'boolean') {
+              document.documentElement.dataset.stalkerIncognitoAllowed = st.incognito_allowed
+                ? 'true'
+                : 'false';
+            }
+          }
+        } catch (_) {}
+      }
+      pollBackendCompanionState();
+      setInterval(pollBackendCompanionState, 1800);
+
+      setInterval(() => {
+        const mode = document.querySelector('input[name="browser_mode"]:checked')?.value || 'open_google';
+        const incAllowed = document.documentElement.dataset.stalkerIncognitoAllowed || '';
+        if (`${mode}:${incAllowed}` !== lastIncognitoState) {
+          updatePrecautionText();
+          if (incAllowed === 'true') {
+            verifyAlert.classList.remove('active');
+          }
+        }
+      }, 800);
+
+      window.addEventListener('pagehide', () => {
+        try {
+          navigator.sendBeacon('/api/ui_closed');
+        } catch (_) {}
+      });
+
+      const quitBtn = document.getElementById('quit-btn');
+      if (quitBtn) {
+        quitBtn.addEventListener('click', async () => {
+          try {
+            await fetch('/api/quit', { method: 'POST' });
+          } catch (_) {}
+          try {
+            window.close();
+          } catch (_) {}
+        });
+      }
 
       window.addEventListener('beforeunload', (e) => {
         if (!isScanningNow) return;
@@ -1479,6 +1626,19 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         verifyAlert.classList.remove('active');
         const browserMode =
           document.querySelector('input[name="browser_mode"]:checked')?.value || 'open_google';
+
+        if (
+          browserMode === 'incognito' &&
+          document.documentElement.dataset.stalkerIncognitoAllowed === 'false'
+        ) {
+          verifyAlertTitle.textContent =
+            'Enable "Run in Private Windows: Allow" in about:addons First';
+          verifyAlertBody.textContent =
+            'Firefox currently blocks Stalker Search Companion from running inside Private Windows (Firefox resets this every time you load a temporary add-on). Open a new tab to about:addons → click Stalker Search Companion → set "Run in Private Windows" to "Allow", then click Search Footprint again.';
+          verifyAlert.classList.add('active');
+          verifyAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
 
         isScanningNow = true;
         submitBtn.disabled = true;
@@ -1688,7 +1848,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           urlDiv.style.fontSize = '0.74rem';
           urlDiv.style.color = '#737373';
           urlDiv.style.wordBreak = 'break-all';
-          urlDiv.textContent = f.url;
+          urlDiv.textContent = f.url.includes('/goto?')
+            ? `${f.domain || 'google.com'} · Google Web Result`
+            : f.url;
           tdRef.appendChild(urlDiv);
 
           if (f.snippet) {

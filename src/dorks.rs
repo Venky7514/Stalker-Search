@@ -141,7 +141,7 @@ impl ScanTarget {
     }
 
     /// Generates common formatting variations of user-supplied phone numbers
-    /// (e.g. `"+91 9876543210"` -> `["9876543210", "+91 9876543210", "98765 43210", "987-654-3210"]`).
+    /// (10-digit, 11-digit leading-0, +91 / 91 country code, and spaced/hyphenated formats).
     pub fn phone_variants(&self) -> Vec<String> {
         let mut out = Vec::new();
         for p in &self.phones {
@@ -156,13 +156,20 @@ impl ScanTarget {
             let digits: String = trimmed.chars().filter(|c| c.is_ascii_digit()).collect();
             if digits.len() >= 10 {
                 let last10 = &digits[digits.len() - 10..];
-                let candidates = vec![
+                let mut candidates = vec![
                     last10.to_string(),
-                    format!("{} {}", &last10[..5], &last10[5..]),
-                    format!("{}-{}-{}", &last10[..3], &last10[3..6], &last10[6..]),
+                    format!("0{}", last10),
                     format!("+91 {}", last10),
+                    format!("+91{}", last10),
+                    format!("91{}", last10),
                     format!("+91-{}", last10),
+                    format!("{} {}", &last10[..5], &last10[5..]),
+                    format!("+91 {} {}", &last10[..5], &last10[5..]),
+                    format!("{}-{}-{}", &last10[..3], &last10[3..6], &last10[6..]),
                 ];
+                if digits.len() == 11 && !candidates.contains(&digits) {
+                    candidates.insert(1, digits.clone());
+                }
                 for c in candidates {
                     if !out.contains(&c) {
                         out.push(c);
@@ -173,7 +180,8 @@ impl ScanTarget {
         out
     }
 
-    /// Returns pure 10+ digit strings for normalized phone comparison in the analyzer.
+    /// Returns normalized digit sequences (10-digit core, 11-digit leading-0, and full digits)
+    /// for matching phone leaks in the analyzer.
     pub fn normalized_phone_digits(&self) -> Vec<String> {
         let mut out = Vec::new();
         for p in &self.phones {
@@ -181,7 +189,18 @@ impl ScanTarget {
             if digits.len() >= 10 {
                 let last10 = digits[digits.len() - 10..].to_string();
                 if !out.contains(&last10) {
-                    out.push(last10);
+                    out.push(last10.clone());
+                }
+                let with_zero = format!("0{}", last10);
+                if !out.contains(&with_zero) {
+                    out.push(with_zero);
+                }
+                let with_91 = format!("91{}", last10);
+                if !out.contains(&with_91) {
+                    out.push(with_91);
+                }
+                if digits.len() == 11 && !out.contains(&digits) {
+                    out.push(digits);
                 }
             } else if digits.len() >= 7 && !out.contains(&digits) {
                 out.push(digits);
@@ -313,7 +332,7 @@ pub fn generate_dorks(target: &ScanTarget) -> Vec<DorkQuery> {
     if !phone_vars.is_empty() {
         let phone_clause = phone_vars
             .iter()
-            .take(4)
+            .take(7)
             .map(|p| format!("\"{}\"", p))
             .collect::<Vec<_>>()
             .join(" OR ");
@@ -388,6 +407,14 @@ mod tests {
         let dorks = generate_dorks(&target);
         assert!(dorks.iter().any(|d| d.query.contains("test@example.com")));
         assert!(dorks.iter().any(|d| d.query.contains("9876543210")));
-        assert_eq!(target.normalized_phone_digits(), vec!["9876543210".to_string()]);
+        assert!(dorks.iter().any(|d| d.query.contains("09876543210")));
+        assert_eq!(
+            target.normalized_phone_digits(),
+            vec![
+                "9876543210".to_string(),
+                "09876543210".to_string(),
+                "919876543210".to_string()
+            ]
+        );
     }
 }
