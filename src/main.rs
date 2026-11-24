@@ -594,6 +594,8 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 format!(r"{}\LibreWolf\librewolf.exe", program_files),
                 format!(r"{}\LibreWolf\librewolf.exe", program_files_x86),
                 format!(r"{}\Programs\LibreWolf\librewolf.exe", local_app_data),
+                "/usr/bin/librewolf".to_string(),
+                "/usr/local/bin/librewolf".to_string(),
             ],
         },
         BrowserSpec {
@@ -605,6 +607,10 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 format!(r"{}\Mozilla Firefox\firefox.exe", program_files),
                 format!(r"{}\Mozilla Firefox\firefox.exe", program_files_x86),
                 format!(r"{}\Mozilla Firefox\firefox.exe", local_app_data),
+                "/usr/bin/firefox".to_string(),
+                "/usr/local/bin/firefox".to_string(),
+                "/snap/bin/firefox".to_string(),
+                "/usr/bin/firefox-esr".to_string(),
             ],
         },
         BrowserSpec {
@@ -615,6 +621,8 @@ fn known_browsers() -> Vec<BrowserSpec> {
             candidate_paths: vec![
                 format!(r"{}\Zen Browser\zen.exe", program_files),
                 format!(r"{}\Programs\Zen Browser\zen.exe", local_app_data),
+                "/usr/bin/zen".to_string(),
+                "/usr/local/bin/zen".to_string(),
             ],
         },
         BrowserSpec {
@@ -625,6 +633,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
             candidate_paths: vec![
                 format!(r"{}\Ablaze Floorp\floorp.exe", program_files),
                 format!(r"{}\Floorp\floorp.exe", program_files),
+                "/usr/bin/floorp".to_string(),
             ],
         },
         BrowserSpec {
@@ -632,7 +641,10 @@ fn known_browsers() -> Vec<BrowserSpec> {
             process_name: "waterfox.exe",
             private_flag: "-private-window",
             is_firefox_family: true,
-            candidate_paths: vec![format!(r"{}\Waterfox\waterfox.exe", program_files)],
+            candidate_paths: vec![
+                format!(r"{}\Waterfox\waterfox.exe", program_files),
+                "/usr/bin/waterfox".to_string(),
+            ],
         },
         BrowserSpec {
             display_name: "Mullvad Browser",
@@ -723,11 +735,37 @@ fn detect_active_or_installed_browser() -> Option<(&'static str, String, &'stati
         .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase())
         .unwrap_or_default();
 
+    #[cfg(not(target_os = "windows"))]
+    let ps_str = Command::new("ps")
+        .args(["-eo", "comm"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase())
+        .unwrap_or_default();
+
     // 1. Prefer an actively running Firefox-family browser (where Stalker Search Companion runs)
     #[cfg(target_os = "windows")]
     for spec in specs.iter().filter(|s| s.is_firefox_family) {
         let needle = format!("\"{}\"", spec.process_name);
         if tasklist_str.contains(&needle) {
+            if let Some(exe_path) = spec
+                .candidate_paths
+                .iter()
+                .find(|p| std::path::Path::new(p).exists())
+            {
+                return Some((
+                    spec.display_name,
+                    exe_path.clone(),
+                    spec.private_flag,
+                    spec.is_firefox_family,
+                ));
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    for spec in specs.iter().filter(|s| s.is_firefox_family) {
+        let linux_proc = spec.process_name.trim_end_matches(".exe");
+        if ps_str.lines().any(|l| l.trim().starts_with(linux_proc)) {
             if let Some(exe_path) = spec
                 .candidate_paths
                 .iter()
@@ -839,6 +877,11 @@ pub fn launch_desktop_app_window(url: &str) {
         ),
         format!(r"{}\Google\Chrome\Application\chrome.exe", program_files),
         format!(r"{}\Google\Chrome\Application\chrome.exe", local_app_data),
+        "/usr/bin/chromium".to_string(),
+        "/usr/bin/chromium-browser".to_string(),
+        "/usr/bin/brave-browser".to_string(),
+        "/usr/bin/google-chrome".to_string(),
+        "/usr/bin/microsoft-edge".to_string(),
     ];
 
     if let Some(host_exe) = app_hosts.iter().find(|p| std::path::Path::new(p).exists()) {
@@ -923,6 +966,16 @@ pub fn open_urls_in_active_browser(urls: &[String], private_mode: bool) {
     #[cfg(target_os = "windows")]
     for u in urls {
         let _ = Command::new("cmd").args(["/C", "start", "", u]).spawn();
+    }
+
+    #[cfg(target_os = "linux")]
+    for u in urls {
+        let _ = Command::new("xdg-open").arg(u).spawn();
+    }
+
+    #[cfg(target_os = "macos")]
+    for u in urls {
+        let _ = Command::new("open").arg(u).spawn();
     }
 }
 

@@ -16,6 +16,8 @@ Stalker Search's browser companion works exclusively with **Firefox based browse
 - **LibreWolf** *(specifically used & recommended by me)*
 - **Mozilla Firefox**, **Zen Browser**, **Floorp**, **Waterfox**, **Mullvad Browser**
 
+> **Important: Keep ONLY the browser where you loaded the companion addon open (close any other browsers before scanning) so Stalker Search does not accidentally catch and open scan tabs in a different browser.**
+
 *(Chromium browsers are intentionally not used for the companion extension.)*
 
 ---
@@ -59,15 +61,22 @@ You can install the addon directly or load it as a **Temporary Addon**. **Loadin
 
 ---
 
-## Build From Source (Optional — For Developers)
+## Running on Linux (or Building From Source)
 
-- **Prerequisites**: [Rust (`1.75+`)](https://rustup.rs/) + a C linker (MinGW-w64 `stable-x86_64-pc-windows-gnu` or Visual Studio C++ Build Tools on Windows).
+Stalker Search works natively on **Linux** (automatically detecting `/usr/bin/librewolf`, `/usr/bin/firefox`, `floorp`, `waterfox`, or `xdg-open`):
 
-```bash
-git clone https://github.com/Venky7514/Stalker-Search.git
-cd Stalker-Search
-cargo run --release
-```
+1. **Install Rust & OpenSSL headers** *(Ubuntu / Debian / Mint / Kali)*:
+   ```bash
+   sudo apt update && sudo apt install -y build-essential pkg-config libssl-dev
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+2. **Clone and run**:
+   ```bash
+   git clone https://github.com/Venky7514/Stalker-Search.git
+   cd Stalker-Search
+   cargo run --release
+   ```
+3. Load **`companion_extension/manifest.json`** in LibreWolf or Firefox via `about:debugging#/runtime/this-firefox` → **Load Temporary Addon...** (just like Step 2 above).
 
 ---
 
