@@ -28,8 +28,8 @@ Go to **[GitHub Releases](https://github.com/Venky7514/Stalker-Search/releases)*
 2. **`stalker-search-companion.zip`** *(Firefox/LibreWolf companion extension)*
 
 > **Important — Unblock the `.exe` on Windows:** Because this is a free, zero telemetry open source binary without a paid commercial signing certificate, Windows may mark the downloaded file as blocked:
-> - **Right-click `stalker-search-v9.exe` → Properties → check `Unblock` at the bottom → click Apply / OK** *(or if Windows SmartScreen appears, click **More info** → **Run anyway**)*, **OR**
-> - In PowerShell, run: `Unblock-File .\stalker-search-v9.exe`
+> - **Right-click `stalker-search.exe` → Properties → check `Unblock` at the bottom → click Apply / OK** *(or if Windows SmartScreen appears, click **More info** → **Run anyway**)*, **OR**
+> - In PowerShell, run: `Unblock-File .\stalker-search.exe`
 
 ---
 
@@ -41,7 +41,7 @@ You can install the addon directly or load it as a **Temporary Addon**. **Loadin
    about:debugging#/runtime/this-firefox
    ```
 2. Click **"Load Temporary Addon..."**.
-3. Select **`stalker-search-companion-v9.zip`** directly *(or unzip it and select `manifest.json`)*.
+3. Select **`stalker-search-companion.zip`** directly *(or unzip it and select `manifest.json`)*.
 4. **Required if you want to use `Incognito Search (Private)` mode:**
    - Open a tab to **`about:addons`** → click **Stalker Search Companion** → scroll down to **Run in Private Windows** and set it to **`Allow`**.
    - *(Note: Firefox resets "Run in Private Windows" to "Don't Allow" every time you load a temporary addon, and the Stalker Search app will show a live green indicator as soon as you switch it to **Allow**.)*
@@ -49,7 +49,7 @@ You can install the addon directly or load it as a **Temporary Addon**. **Loadin
 ---
 
 ### 3. Run Your Scan
-1. Double-click **`stalker-search-v9.exe`** — it opens in its own desktop software window.
+1. Double-click **`stalker-search.exe`** — it opens in its own desktop software window.
 2. Enter at least **one** of **Name**, **Email**, or **Phone Number** *(add comma separated **Context** like college, city, or company to narrow common names)*.
 3. Choose a Search Mode and click **Search Footprint**:
    - **Open Google Search (Faster)**: Uses your active Firefox/LibreWolf window to avoid CAPTCHAs, crawls up to 10 pages of Google results per query, automatically deletes the searched query URLs from your browser history, and **auto closes the tabs** once synced.
