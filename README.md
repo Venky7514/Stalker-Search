@@ -48,7 +48,11 @@ Works exclusively with **Firefox based browsers** because privacy hardened Gecko
 You can either install the approved addon directly from Mozilla or load it as a **Temporary Addon** (I personally prefer Temporary mode when I only want the extension in memory for a single OSINT session so it vanishes when the browser closes):
 
 - **Option A — Direct Install from Mozilla Addons (Easiest):**
-  Install **[Stalker Search Companion on Mozilla Addons](https://addons.mozilla.org/en-US/firefox/addon/stalker-search-companion/)** in LibreWolf or Firefox.
+
+  <a href="https://addons.mozilla.org/en-US/firefox/addon/stalker-search-companion/">
+    <img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Get the Addon" height="56">
+  </a>
+
 - **Option B — Temporary Addon (Session Only):**
   Open `about:debugging#/runtime/this-firefox` → click **"Load Temporary Addon..."** → select **`companion_extension/manifest.json`** *(Linux / source)* or **`stalker-search-companion.zip`** *(Releases)*.
 - **For `Incognito Search (Private)` mode:** Open **`about:addons`** → click **Stalker Search Companion** → set **Run in Private Windows** to **`Allow`** *(Firefox resets this to "Don't Allow" each time you reload a temporary addon)*.
