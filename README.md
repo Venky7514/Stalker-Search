@@ -62,12 +62,12 @@ Loading the addon as a **Temporary Addon** is preferred because it only stays in
 2. Enter at least **one** of **Name**, **Email**, or **Phone Number** *(add comma separated **Context** like college, city, or company to narrow common names)*.
 3. Select a Search Mode and click **Search Footprint**:
    - **Open Google Search (Faster)**: Uses your active browser to avoid CAPTCHAs, crawls up to 10 Google pages per query, deletes the searched URLs from browser history, and **auto closes the tabs** once synced.
-   - **Incognito Search (Private)**: Opens searches in a Private window with zero saved history. **If Google prompts "Verify you are human" (CAPTCHA) in the Private tab, complete the verification directly inside that tab** (keep the tab open while verifying) and it will scan all pages and **auto close the tabs** automatically.
+   - **Incognito Search (Private)**: Opens searches in a Private window so queries are not tied to a signed in Google account or saved in local history *(for full network privacy, pair this mode with a **VPN** so your ISP, DNS, and Google do not log your home IP)*. **If Google prompts "Verify you are human" (CAPTCHA) in the Private tab, complete the verification directly inside that tab** (keep the tab open while verifying) and it will scan all pages and **auto close the tabs** automatically.
    - **Background APIs Only**: Silently queries 18 public datasets (GitHub, Reddit, News RSS, arXiv, OpenAlex, ORCID, Google Calendar `.ics`, Gravatar, OpenPGP, etc.) without opening browser tabs.
 
 ---
 
 ## Privacy & Credits
 
-- **100% Free & Zero Telemetry**: Runs purely on `127.0.0.1` with zero cookies, analytics, or external servers.
+- **100% Free & Zero Telemetry**: Stalker Search runs purely on `127.0.0.1` with zero cookies, analytics, or external servers, and automatically wipes scanned URLs from your local browser history. *(Note: Outbound requests to Google or public APIs still traverse your network, so use a **VPN** with **Incognito Search** if you want to hide lookup activity from your DNS, ISP, and IP logs.)*
 - **Inspiration**: Inspired in part by **[mxrch/GHunt](https://github.com/mxrch/GHunt)** for local browser companion architecture and public email and calendar pivoting techniques.
