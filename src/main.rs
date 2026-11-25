@@ -597,6 +597,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 "/usr/bin/librewolf".to_string(),
                 "/usr/local/bin/librewolf".to_string(),
                 "/var/lib/flatpak/exports/bin/io.gitlab.librewolf-community".to_string(),
+                "/Applications/LibreWolf.app/Contents/MacOS/librewolf".to_string(),
             ],
         },
         BrowserSpec {
@@ -613,6 +614,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 "/snap/bin/firefox".to_string(),
                 "/usr/bin/firefox-esr".to_string(),
                 "/var/lib/flatpak/exports/bin/org.mozilla.firefox".to_string(),
+                "/Applications/Firefox.app/Contents/MacOS/firefox".to_string(),
             ],
         },
         BrowserSpec {
@@ -626,6 +628,8 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 "/usr/bin/zen".to_string(),
                 "/usr/local/bin/zen".to_string(),
                 "/var/lib/flatpak/exports/bin/app.zen_browser.zen".to_string(),
+                "/Applications/Zen Browser.app/Contents/MacOS/zen".to_string(),
+                "/Applications/Zen.app/Contents/MacOS/zen".to_string(),
             ],
         },
         BrowserSpec {
@@ -638,6 +642,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 format!(r"{}\Floorp\floorp.exe", program_files),
                 "/usr/bin/floorp".to_string(),
                 "/var/lib/flatpak/exports/bin/one.ablaze.floorp".to_string(),
+                "/Applications/Floorp.app/Contents/MacOS/floorp".to_string(),
             ],
         },
         BrowserSpec {
@@ -649,6 +654,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 format!(r"{}\Waterfox\waterfox.exe", program_files),
                 "/usr/bin/waterfox".to_string(),
                 "/var/lib/flatpak/exports/bin/net.waterfox.waterfox".to_string(),
+                "/Applications/Waterfox.app/Contents/MacOS/waterfox".to_string(),
             ],
         },
         BrowserSpec {
@@ -656,10 +662,13 @@ fn known_browsers() -> Vec<BrowserSpec> {
             process_name: "mullvadbrowser.exe",
             private_flag: "-private-window",
             is_firefox_family: true,
-            candidate_paths: vec![format!(
-                r"{}\Mullvad Browser\Browser\mullvadbrowser.exe",
-                local_app_data
-            )],
+            candidate_paths: vec![
+                format!(
+                    r"{}\Mullvad Browser\Browser\mullvadbrowser.exe",
+                    local_app_data
+                ),
+                "/Applications/Mullvad Browser.app/Contents/MacOS/mullvadbrowser".to_string(),
+            ],
         },
         BrowserSpec {
             display_name: "Brave",
@@ -887,6 +896,9 @@ pub fn launch_desktop_app_window(url: &str) {
         "/usr/bin/brave-browser".to_string(),
         "/usr/bin/google-chrome".to_string(),
         "/usr/bin/microsoft-edge".to_string(),
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser".to_string(),
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".to_string(),
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge".to_string(),
     ];
 
     if let Some(host_exe) = app_hosts.iter().find(|p| std::path::Path::new(p).exists()) {
