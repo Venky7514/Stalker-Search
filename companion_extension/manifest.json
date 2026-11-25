@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
   "name": "Stalker Search Companion",
-  "version": "1.1.0",
-  "description": "Privacy-focused local companion syncing public search links to 127.0.0.1 and clearing query history. Zero cookies or telemetry.",
+  "version": "1.3.0",
+  "description": "Local companion syncing public search links to 127.0.0.1, clearing query history, and auto closing tabs. Zero cookies or telemetry.",
   "icons": {
     "48": "icon.svg",
     "96": "icon.svg"

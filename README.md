@@ -43,16 +43,15 @@ Works exclusively with **Firefox based browsers** because privacy hardened Gecko
 
 ---
 
-## Step 2: Add the Companion Extension (Temporary Mode Preferred)
+## Step 2: Add the Companion Extension
 
-Loading the addon as a **Temporary Addon** is preferred because it only stays in memory for your active OSINT session and is removed automatically when you close your browser:
+You can either install the approved addon directly from Mozilla or load it as a **Temporary Addon** (I personally prefer Temporary mode when I only want the extension in memory for a single OSINT session so it vanishes when the browser closes):
 
-1. In **LibreWolf** or **Firefox**, go to:
-   ```text
-   about:debugging#/runtime/this-firefox
-   ```
-2. Click **"Load Temporary Addon..."** and select **`companion_extension/manifest.json`** *(Linux / source)* or **`stalker-search-companion.zip`** *(Releases)*.
-3. **For `Incognito Search (Private)` mode:** Open **`about:addons`** → click **Stalker Search Companion** → set **Run in Private Windows** to **`Allow`** *(Firefox resets this to "Don't Allow" each time you reload a temporary addon)*.
+- **Option A — Direct Install from Mozilla Addons (Easiest):**
+  Install **[Stalker Search Companion on Mozilla Addons](https://addons.mozilla.org/en-US/firefox/addon/stalker-search-companion/)** in LibreWolf or Firefox.
+- **Option B — Temporary Addon (Session Only):**
+  Open `about:debugging#/runtime/this-firefox` → click **"Load Temporary Addon..."** → select **`companion_extension/manifest.json`** *(Linux / source)* or **`stalker-search-companion.zip`** *(Releases)*.
+- **For `Incognito Search (Private)` mode:** Open **`about:addons`** → click **Stalker Search Companion** → set **Run in Private Windows** to **`Allow`** *(Firefox resets this to "Don't Allow" each time you reload a temporary addon)*.
 
 ---
 
