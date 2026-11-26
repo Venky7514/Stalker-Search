@@ -58,7 +58,7 @@ You can install the signed addon from Mozilla or load it as a **Temporary Addon*
 
 ## Step 3: Run Your Scan
 
-1. Keep only your companion browser open and launch Stalker Search (`cargo run --release` on Linux, `stalker-search.exe` on Windows, or open **`http://127.0.0.1:7878`**). To run on a custom port instead of `7878`, pass `ui --port <PORT>` (for example `cargo run --release -- ui --port 40152` or `.\stalker-search.exe ui --port 40152`).
+1. Keep only your companion browser open and launch Stalker Search (`cargo run --release` on Linux, `stalker-search.exe` on Windows, or open **`http://127.0.0.1:7878`**). To run on a custom port instead of `7878`, pass `ui --port <PORT>` (for example `cargo run --release -- ui --port 40152` or `stalker-search.exe ui --port 40152`).
 2. Enter a **Name**, **Email**, or **Phone Number** (add comma separated **Context** like college, city, or company to narrow common names).
 3. Choose a Search Mode and click **Search Footprint**:
    - **Open Google Search (Faster)**: Uses your active browser to avoid CAPTCHAs, scans up to 10 Google pages per query, deletes the searched URLs from browser history, and auto closes the tabs once synced.
