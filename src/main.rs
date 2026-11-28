@@ -583,6 +583,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
         std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
     let program_files_x86 = std::env::var("ProgramFiles(x86)")
         .unwrap_or_else(|_| r"C:\Program Files (x86)".to_string());
+    let home = std::env::var("HOME").unwrap_or_default();
 
     vec![
         BrowserSpec {
@@ -598,6 +599,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 "/usr/local/bin/librewolf".to_string(),
                 "/var/lib/flatpak/exports/bin/io.gitlab.librewolf-community".to_string(),
                 "/Applications/LibreWolf.app/Contents/MacOS/librewolf".to_string(),
+                format!("{}/Applications/LibreWolf.app/Contents/MacOS/librewolf", home),
             ],
         },
         BrowserSpec {
@@ -615,6 +617,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 "/usr/bin/firefox-esr".to_string(),
                 "/var/lib/flatpak/exports/bin/org.mozilla.firefox".to_string(),
                 "/Applications/Firefox.app/Contents/MacOS/firefox".to_string(),
+                format!("{}/Applications/Firefox.app/Contents/MacOS/firefox", home),
             ],
         },
         BrowserSpec {
@@ -630,6 +633,8 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 "/var/lib/flatpak/exports/bin/app.zen_browser.zen".to_string(),
                 "/Applications/Zen Browser.app/Contents/MacOS/zen".to_string(),
                 "/Applications/Zen.app/Contents/MacOS/zen".to_string(),
+                format!("{}/Applications/Zen Browser.app/Contents/MacOS/zen", home),
+                format!("{}/Applications/Zen.app/Contents/MacOS/zen", home),
             ],
         },
         BrowserSpec {
@@ -643,6 +648,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 "/usr/bin/floorp".to_string(),
                 "/var/lib/flatpak/exports/bin/one.ablaze.floorp".to_string(),
                 "/Applications/Floorp.app/Contents/MacOS/floorp".to_string(),
+                format!("{}/Applications/Floorp.app/Contents/MacOS/floorp", home),
             ],
         },
         BrowserSpec {
@@ -655,6 +661,7 @@ fn known_browsers() -> Vec<BrowserSpec> {
                 "/usr/bin/waterfox".to_string(),
                 "/var/lib/flatpak/exports/bin/net.waterfox.waterfox".to_string(),
                 "/Applications/Waterfox.app/Contents/MacOS/waterfox".to_string(),
+                format!("{}/Applications/Waterfox.app/Contents/MacOS/waterfox", home),
             ],
         },
         BrowserSpec {
@@ -668,6 +675,10 @@ fn known_browsers() -> Vec<BrowserSpec> {
                     local_app_data
                 ),
                 "/Applications/Mullvad Browser.app/Contents/MacOS/mullvadbrowser".to_string(),
+                format!(
+                    "{}/Applications/Mullvad Browser.app/Contents/MacOS/mullvadbrowser",
+                    home
+                ),
             ],
         },
         BrowserSpec {
@@ -778,8 +789,12 @@ fn detect_active_or_installed_browser() -> Option<(&'static str, String, &'stati
 
     #[cfg(not(target_os = "windows"))]
     for spec in specs.iter().filter(|s| s.is_firefox_family) {
-        let linux_proc = spec.process_name.trim_end_matches(".exe");
-        if ps_str.lines().any(|l| l.trim().starts_with(linux_proc)) {
+        let unix_proc = spec.process_name.trim_end_matches(".exe");
+        let slash_proc = format!("/{}", unix_proc);
+        if ps_str.lines().any(|l| {
+            let t = l.trim();
+            t == unix_proc || t.starts_with(unix_proc) || t.ends_with(&slash_proc)
+        }) {
             if let Some(exe_path) = spec
                 .candidate_paths
                 .iter()
@@ -970,6 +985,21 @@ pub fn open_urls_in_active_browser(urls: &[String], private_mode: bool) {
                 style(browser_name).green().bold(),
                 urls.len()
             );
+
+            // On macOS, use `open -a <Browser.app> <urls>` so LaunchServices opens tabs in the active
+            // browser window without triggering "A copy of Firefox is already open".
+            #[cfg(target_os = "macos")]
+            if let Some(app_idx) = exe_path.find(".app/") {
+                let app_bundle = &exe_path[..app_idx + 4];
+                let mut cmd = Command::new("open");
+                cmd.args(["-a", app_bundle]);
+                for u in urls {
+                    cmd.arg(u);
+                }
+                let _ = cmd.spawn();
+                return;
+            }
+
             let mut cmd = Command::new(&exe_path);
             for u in urls {
                 cmd.arg(u);

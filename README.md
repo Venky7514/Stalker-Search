@@ -1,6 +1,6 @@
 # Stalker Search
 
-A free, open source, zero telemetry, local personal privacy and OSINT scanner built in Rust with a companion extension for Firefox based browsers. Tested on **Arch Linux**, **Kali Linux**, and **Windows**.
+A free, open source, zero telemetry, local personal privacy and OSINT scanner built in Rust with a companion extension for Firefox based browsers. Supports **Linux** (tested on **Arch Linux** and **Kali Linux**), **Windows**, and **macOS**.
 
 Stalker Search helps you find what is publicly exposed under your name, email, or phone number (10 digit, 11 digit, and `+91` or country code formats) so you can remove leaked documents, public calendars, profiles, and contact details before a stalker finds them.
 
@@ -38,6 +38,20 @@ Works only with **Firefox based browsers** (**LibreWolf** is used and recommende
 
 1. Download **`stalker-search.exe`** and **`stalker-search-companion.zip`** from **[GitHub Releases](https://github.com/Venky7514/Stalker-Search/releases)**.
 2. **Unblock the executable:** Right click `stalker-search.exe` -> **Properties** -> check **Unblock** -> **Apply** (or run `Unblock-File .\stalker-search.exe` in PowerShell, or click **More info** -> **Run anyway**), then open `stalker-search.exe`.
+
+### macOS (Apple Silicon & Intel)
+
+1. Install Xcode Command Line Tools and Rust:
+   ```bash
+   xcode-select --install
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+2. Clone and run:
+   ```bash
+   git clone https://github.com/Venky7514/Stalker-Search.git
+   cd Stalker-Search
+   cargo run --release
+   ```
 
 ---
 
